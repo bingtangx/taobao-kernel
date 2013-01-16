@@ -1,0 +1,56 @@
+From: Konstantin Khlebnikov <khlebnikov@openvz.org>
+Date: Tue Jan 10 15:07:03 2012 -0800
+Subject: [PATCH RESEND] vmscan: activate executable pages after first usage
+Patch-mainline: 3.3
+Reference: c909e993
+
+Logic added in commit 8cab4754d24a0 ("vmscan: make mapped executable pages
+the first class citizen") was noticeably weakened in commit
+645747462435d84 ("vmscan: detect mapped file pages used only once").
+
+Currently these pages can become "first class citizens" only after second
+usage.  After this patch page_check_references() will activate they after
+first usage, and executable code gets yet better chance to stay in memory.
+
+[Notes from Zheng Liu]
+This patch (commit id: c909e993) is able to solve performance regression
+in TFS dataserver.  In TFS dataserver, we met a regression for page
+reclaim, which maped files are reclaimed.  We need to add PROT_EXEC flag
+into dataserver to activate this mechanism.  IMO, this is too tricky
+because it is possbile to be abused by other applications.
+
+34dbc67a is another patch to promote shared file mapped pages.  But it is
+only useful in multi-process scenarios.  It doesn't be backported because
+it isn't useful for us now.
+
+Signed-off-by: Konstantin Khlebnikov <khlebnikov@openvz.org>
+Cc: Pekka Enberg <penberg@kernel.org>
+Cc: Minchan Kim <minchan.kim@gmail.com>
+Cc: KAMEZAWA Hiroyuki <kamezawa.hiroyu@jp.fujitsu.com>
+Cc: Wu Fengguang <fengguang.wu@intel.com>
+Cc: Johannes Weiner <hannes@cmpxchg.org>
+Cc: Nick Piggin <npiggin@kernel.dk>
+Cc: Mel Gorman <mel@csn.ul.ie>
+Cc: Shaohua Li <shaohua.li@intel.com>
+Cc: Rik van Riel <riel@redhat.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-220.7.1.el5/mm/vmscan.c
+===================================================================
+--- linux-2.6.32-220.7.1.el5.orig/mm/vmscan.c
++++ linux-2.6.32-220.7.1.el5/mm/vmscan.c
+@@ -627,6 +627,12 @@ static enum page_references page_check_r
+ 		if (referenced_page)
+ 			return PAGEREF_ACTIVATE;
+ 
++		/*
++		 * Activate file-backed executable pages after first usage.
++		 */
++		if (vm_flags & VM_EXEC)
++			return PAGEREF_ACTIVATE;
++
+ 		return PAGEREF_KEEP;
+ 	}
+ 

@@ -1,0 +1,142 @@
+From dfc7a65fecb2c3e6a221355f859c6fbae617a9a7 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Tue, 22 Nov 2011 00:05:29 +0800
+Subject: [PATCH 18/22] ext4: let ext4_rename handle inline dir.
+Patch-mainline: in house
+
+In case of we rename a dir, ext4_rename has to read the dir block
+and change its dotdot's information. The old ext4_rename encapsulated
+the dir_block read into itself. So this patch try to add a new function
+ext4_get_dir_block which get the dir buffer information so the
+ext4_rename can handle it properly.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+diff --git a/fs/ext4/inline.c b/fs/ext4/inline.c
+index ba90b17..1194b38 100644
+--- a/fs/ext4/inline.c
++++ b/fs/ext4/inline.c
+@@ -1322,6 +1322,21 @@ out:
+ 	return ret;
+ }
+ 
++struct buffer_head *ext4_get_first_inline_block(struct inode *inode,
++				void **buf, int *buf_size, int *retval)
++{
++	struct ext4_iloc iloc;
++
++	*retval = ext4_get_inode_loc(inode, &iloc);
++	if (*retval)
++		return NULL;
++
++	*buf = ext4_raw_inode(&iloc)->i_block;
++	*buf_size = EXT4_MIN_INLINE_DATA_SIZE;
++
++	return iloc.bh;
++}
++
+ struct buffer_head *ext4_find_inline_entry(struct inode *dir,
+ 					const struct qstr *d_name,
+ 					struct ext4_dir_entry_2 **res_dir,
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index 4bc6726..bf8f123 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -2459,6 +2459,31 @@ retry:
+ 	(ext4_next_entry((struct ext4_dir_entry_2 *)(buffer), size)->inode)
+ 
+ /*
++ * Try to find buffer head where contains the parent block.
++ * It should be the inode block if it is inlined or the 1st block
++ * if it is a normal dir.
++ */
++static struct buffer_head *ext4_get_first_dir_block(handle_t *handle,
++						    struct inode *inode,
++						    void **buf,
++						    int *buf_size,
++						    int *retval)
++{
++	struct buffer_head *bh;
++
++	if (!ext4_has_inline_data(inode)) {
++		bh = ext4_bread(handle, inode, 0, 0, retval);
++		if (!bh)
++			return NULL;
++		*buf = bh->b_data;
++		*buf_size = inode->i_sb->s_blocksize;
++		return bh;
++	}
++
++	return ext4_get_first_inline_block(inode, buf, buf_size, retval);
++}
++
++/*
+  * Anybody can rename anything with this: the permission checks are left to the
+  * higher-level routines.
+  */
+@@ -2469,7 +2494,8 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
+ 	struct inode *old_inode, *new_inode;
+ 	struct buffer_head *old_bh, *new_bh, *dir_bh;
+ 	struct ext4_dir_entry_2 *old_de, *new_de;
+-	int retval, force_da_alloc = 0;
++	int buf_size, retval, force_da_alloc = 0;
++	void *dir_buf = NULL;
+ 
+ 	old_bh = new_bh = dir_bh = NULL;
+ 
+@@ -2513,11 +2539,12 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
+ 				goto end_rename;
+ 		}
+ 		retval = -EIO;
+-		dir_bh = ext4_bread(handle, old_inode, 0, 0, &retval);
++		dir_bh = ext4_get_first_dir_block(handle, old_inode,
++						  &dir_buf, &buf_size, &retval);
+ 		if (!dir_bh)
+ 			goto end_rename;
+-		if (le32_to_cpu(PARENT_INO(dir_bh->b_data,
+-				old_dir->i_sb->s_blocksize)) != old_dir->i_ino)
++		if (le32_to_cpu(PARENT_INO(dir_buf,
++					   buf_size)) != old_dir->i_ino)
+ 			goto end_rename;
+ 		retval = -EMLINK;
+ 		if (!new_inode && new_dir != old_dir &&
+@@ -2589,8 +2616,7 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
+ 	if (dir_bh) {
+ 		BUFFER_TRACE(dir_bh, "get_write_access");
+ 		ext4_journal_get_write_access(handle, dir_bh);
+-		PARENT_INO(dir_bh->b_data, new_dir->i_sb->s_blocksize) =
+-						cpu_to_le32(new_dir->i_ino);
++		PARENT_INO(dir_buf, buf_size) = cpu_to_le32(new_dir->i_ino);
+ 		BUFFER_TRACE(dir_bh, "call ext4_handle_dirty_metadata");
+ 		ext4_handle_dirty_metadata(handle, old_dir, dir_bh);
+ 		ext4_dec_count(handle, old_dir);
+diff --git a/fs/ext4/xattr.h b/fs/ext4/xattr.h
+index 17ba4b8..180c8a4 100644
+--- a/fs/ext4/xattr.h
++++ b/fs/ext4/xattr.h
+@@ -177,6 +177,10 @@ extern int ext4_delete_inline_entry(handle_t *handle,
+ 				    struct ext4_dir_entry_2 *de_del,
+ 				    struct buffer_head *bh);
+ extern int empty_inline_dir(struct inode *dir, int *has_inline_data);
++extern struct buffer_head *ext4_get_first_inline_block(struct inode *inode,
++						       void **buf,
++						       int *buf_size,
++						       int *retval);
+ # else  /* CONFIG_EXT4_FS_XATTR */
+ 
+ static inline int
+@@ -379,6 +383,14 @@ static inline int empty_inline_dir(struct inode *dir, int *has_inline_data)
+ {
+ 	return 0;
+ }
++
++static inline struct buffer_head *
++ext4_get_first_inline_block(struct inode *inode,
++			    void **buf, int *buf_size,
++			    int *retval)
++{
++	return NULL;
++}
+ # endif  /* CONFIG_EXT4_FS_XATTR */
+ 
+ #ifdef CONFIG_EXT4_FS_SECURITY

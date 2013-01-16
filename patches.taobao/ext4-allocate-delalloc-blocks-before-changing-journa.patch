@@ -1,0 +1,42 @@
+From 2aff57b0c052344e8401a8b4a33c2a1ecb0f627c Mon Sep 17 00:00:00 2001
+From: Yongqiang Yang <xiaoqiangnk@gmail.com>
+Date: Wed, 28 Dec 2011 12:02:13 -0500
+Subject: [PATCH] ext4: allocate delalloc blocks before changing journal mode
+Patch-mainline: 2aff57b0c
+References: 
+
+delalloc blocks should be allocated before changing journal mode,
+otherwise they can not be allocated and even more truncate on
+delalloc blocks could triggre BUG by flushing delalloc buffers.
+
+Signed-off-by: Yongqiang Yang <xiaoqiangnk@gmail.com>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+Acked-by: 
+
+---
+ fs/ext4/inode.c |   11 +++++++++++
+ 1 files changed, 11 insertions(+), 0 deletions(-)
+
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:14:25.197090096 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:14:38.677156962 +0800
+@@ -6267,6 +6267,17 @@
+ 		return 0;
+ 	if (is_journal_aborted(journal))
+ 		return -EROFS;
++	/* We have to allocate physical blocks for delalloc blocks
++	 * before flushing journal. otherwise delalloc blocks can not
++	 * be allocated any more. even more truncate on delalloc blocks
++	 * could trigger BUG by flushing delalloc blocks in journal.
++	 * There is no delalloc block in non-journal data mode.
++	 */
++	if (val && test_opt(inode->i_sb, DELALLOC)) {
++		err = ext4_alloc_da_blocks(inode);
++		if (err < 0)
++			return err;
++	}
+ 
+ 	jbd2_journal_lock_updates(journal);
+ 	jbd2_journal_flush(journal);

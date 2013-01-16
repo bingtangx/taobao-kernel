@@ -1,0 +1,20 @@
+From:   Mike Waychison <mikew@google.com>
+Date:   Mon Apr 25 13:48:51 2011 +0800
+Subject: [PATCH 18/24] kmsg_dumper: introduce a new 'SOFT' dump reason.
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+Signed-off-by: Mike Waychison <mikew@google.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/include/linux/kmsg_dump.h
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/include/linux/kmsg_dump.h	2011-12-21 22:41:46.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/include/linux/kmsg_dump.h	2011-12-21 22:41:46.000000000 +0800
+@@ -20,6 +20,7 @@
+ 	KMSG_DUMP_OOPS,
+ 	KMSG_DUMP_PANIC,
+ 	KMSG_DUMP_KEXEC,
++	KMSG_DUMP_SOFT,
+ };
+ 
+ /**

@@ -1,0 +1,33 @@
+From: Coly Li <bosong.ly@taobao.com>
+Date: Tue Jan 17 14:02:30 CST 2012
+Subject: [PATCH] Ext4: Add netoops support to io error guard
+Patch-mainline: in house patch
+Reference:
+
+Add netoops support to Ext4-io-error-guard, when IO errors
+exceed threshold, dump kmesg via netoops to remote log target,
+being helpful to harddisk error detection.
+
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.2.1.el5/fs/bio.c
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/fs/bio.c	2012-02-24 11:59:27.486663616 +0800
++++ linux-2.6.32-220.2.1.el5/fs/bio.c	2012-02-24 11:59:27.506663715 +0800
+@@ -27,7 +27,7 @@
+ #include <linux/workqueue.h>
+ #include <scsi/sg.h>		/* for struct sg_iovec */
+ #include <trace/events/block.h>
+-
++#include <linux/kmsg_dump.h>
+ /*
+  * Test patch to inline a certain number of bi_io_vec's inside the bio
+  * itself, to shrink a bio data allocation from two mempool calls to one
+@@ -1454,6 +1454,7 @@
+ 		}
+ 	}
+ 	spin_unlock(&eio->lock);
++	kmsg_dump(KMSG_DUMP_SOFT, NULL);
+ }
+ 
+ /**

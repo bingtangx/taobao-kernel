@@ -1,0 +1,347 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH v2 5/8] ext4: account the metadata request of write operations in buffered io
+Patch-mainline: in house patch
+
+Calling ext4_ios_write to account metadata request of write in buffered io.
+
+Signed-off-by: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/extents.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/extents.c	2012-06-20 00:13:28.704809995 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/extents.c	2012-06-20 00:14:13.389031581 +0800
+@@ -143,6 +143,8 @@
+ 	int err;
+ 	if (path->p_bh) {
+ 		/* path points to block */
++		ext4_ios_write(inode->i_sb, handle, path->p_bh,
++			       EXT4_IOS_EXTENT_BLOCK, 1);
+ 		err = ext4_handle_dirty_metadata(handle, inode, path->p_bh);
+ 	} else {
+ 		/* path points to leaf/index in inode body */
+@@ -938,6 +940,7 @@
+ 	set_buffer_uptodate(bh);
+ 	unlock_buffer(bh);
+ 
++	ext4_ios_write(inode->i_sb, handle, bh, EXT4_IOS_EXTENT_BLOCK, 1);
+ 	err = ext4_handle_dirty_metadata(handle, inode, bh);
+ 	if (err)
+ 		goto cleanup;
+@@ -1027,6 +1030,8 @@
+ 		set_buffer_uptodate(bh);
+ 		unlock_buffer(bh);
+ 
++		ext4_ios_write(inode->i_sb, handle, bh,
++			       EXT4_IOS_EXTENT_BLOCK, 1);
+ 		err = ext4_handle_dirty_metadata(handle, inode, bh);
+ 		if (err)
+ 			goto cleanup;
+@@ -1123,6 +1128,7 @@
+ 	set_buffer_uptodate(bh);
+ 	unlock_buffer(bh);
+ 
++	ext4_ios_write(inode->i_sb, handle, bh, EXT4_IOS_EXTENT_BLOCK, 1);
+ 	err = ext4_handle_dirty_metadata(handle, inode, bh);
+ 	if (err)
+ 		goto out;
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/ialloc.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/ialloc.c	2012-06-20 00:13:28.704809995 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/ialloc.c	2012-06-20 00:14:13.389031581 +0800
+@@ -286,10 +286,12 @@
+ 			}
+ 		}
+ 		BUFFER_TRACE(bh2, "call ext4_handle_dirty_metadata");
++		ext4_ios_write(sb, handle, bh2, EXT4_IOS_GROUP_DESC, 1);
+ 		err = ext4_handle_dirty_metadata(handle, NULL, bh2);
+ 		if (!fatal) fatal = err;
+ 	}
+ 	BUFFER_TRACE(bitmap_bh, "call ext4_handle_dirty_metadata");
++	ext4_ios_write(sb, handle, bitmap_bh, EXT4_IOS_INODE_BITMAP, 1);
+ 	err = ext4_handle_dirty_metadata(handle, NULL, bitmap_bh);
+ 	if (!fatal)
+ 		fatal = err;
+@@ -914,6 +916,8 @@
+ 				/* we won it */
+ 				BUFFER_TRACE(inode_bitmap_bh,
+ 					"call ext4_handle_dirty_metadata");
++				ext4_ios_write(sb, handle, inode_bitmap_bh,
++					       EXT4_IOS_INODE_BITMAP, 1);
+ 				err = ext4_handle_dirty_metadata(handle,
+ 								 NULL,
+ 							inode_bitmap_bh);
+@@ -959,6 +963,8 @@
+ 		}
+ 
+ 		BUFFER_TRACE(block_bitmap_bh, "dirty block bitmap");
++		ext4_ios_write(sb, handle, block_bitmap_bh,
++			       EXT4_IOS_BLOCK_BITMAP, 1);
+ 		err = ext4_handle_dirty_metadata(handle, NULL, block_bitmap_bh);
+ 		brelse(block_bitmap_bh);
+ 
+@@ -977,6 +983,7 @@
+ 			goto fail;
+ 	}
+ 	BUFFER_TRACE(group_desc_bh, "call ext4_handle_dirty_metadata");
++	ext4_ios_write(sb, handle, group_desc_bh, EXT4_IOS_GROUP_DESC, 1);
+ 	err = ext4_handle_dirty_metadata(handle, NULL, group_desc_bh);
+ 	if (err)
+ 		goto fail;
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:13:38.764859893 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:14:13.389031581 +0800
+@@ -826,6 +826,8 @@
+ 		unlock_buffer(bh);
+ 
+ 		BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
++		ext4_ios_write(inode->i_sb, handle, bh,
++			       EXT4_IOS_INDIRECT_BLOCK, 1);
+ 		err = ext4_handle_dirty_metadata(handle, inode, bh);
+ 		if (err)
+ 			goto failed;
+@@ -906,6 +908,8 @@
+ 		 */
+ 		jbd_debug(5, "splicing indirect only\n");
+ 		BUFFER_TRACE(where->bh, "call ext4_handle_dirty_metadata");
++		ext4_ios_write(inode->i_sb, handle, where->bh,
++			       EXT4_IOS_INDIRECT_BLOCK, 1);
+ 		err = ext4_handle_dirty_metadata(handle, inode, where->bh);
+ 		if (err)
+ 			goto err_out;
+@@ -1592,6 +1596,8 @@
+ 			}
+ 			unlock_buffer(bh);
+ 			BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
++			ext4_ios_write(inode->i_sb, handle, bh,
++				       EXT4_IOS_DIR_ENTRY, 1);
+ 			err = ext4_handle_dirty_metadata(handle, inode, bh);
+ 			if (!fatal)
+ 				fatal = err;
+@@ -4613,6 +4619,8 @@
+ 	if (try_to_extend_transaction(handle, inode)) {
+ 		if (bh) {
+ 			BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
++			ext4_ios_write(inode->i_sb, handle, bh,
++				       EXT4_IOS_INDIRECT_BLOCK, 1);
+ 			ext4_handle_dirty_metadata(handle, inode, bh);
+ 		}
+ 		ext4_mark_inode_dirty(handle, inode);
+@@ -4723,9 +4731,11 @@
+ 		 * block pointed to itself, it would have been detached when
+ 		 * the block was cleared. Check for this instead of OOPSing.
+ 		 */
+-		if ((EXT4_JOURNAL(inode) == NULL) || bh2jh(this_bh))
++		if ((EXT4_JOURNAL(inode) == NULL) || bh2jh(this_bh)) {
++			ext4_ios_write(inode->i_sb, handle, this_bh,
++				       EXT4_IOS_INDIRECT_BLOCK, 1);
+ 			ext4_handle_dirty_metadata(handle, inode, this_bh);
+-		else
++		} else
+ 			ext4_error(inode->i_sb,
+ 				   "circular indirect block detected, "
+ 				   "inode=%lu, block=%llu",
+@@ -4846,6 +4856,9 @@
+ 					*p = 0;
+ 					BUFFER_TRACE(parent_bh,
+ 					"call ext4_handle_dirty_metadata");
++					ext4_ios_write(inode->i_sb, handle,
++						parent_bh,
++						EXT4_IOS_INDIRECT_BLOCK, 1);
+ 					ext4_handle_dirty_metadata(handle,
+ 								   inode,
+ 								   parent_bh);
+@@ -5615,6 +5628,8 @@
+ 					EXT4_FEATURE_RO_COMPAT_LARGE_FILE);
+ 			sb->s_dirt = 1;
+ 			ext4_handle_sync(handle);
++			ext4_ios_write(inode->i_sb, handle, EXT4_SB(sb)->s_sbh,
++				       EXT4_IOS_SUPER_BLOCK, 1);
+ 			err = ext4_handle_dirty_metadata(handle, NULL,
+ 					EXT4_SB(sb)->s_sbh);
+ 		}
+@@ -5645,6 +5660,7 @@
+ 	}
+ 
+ 	BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
++	ext4_ios_write(inode->i_sb, handle, bh, EXT4_IOS_INODE_TABLE, 1);
+ 	rc = ext4_handle_dirty_metadata(handle, NULL, bh);
+ 	if (!err)
+ 		err = rc;
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/mballoc.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/mballoc.c	2012-06-20 00:13:28.708810018 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/mballoc.c	2012-06-20 00:14:13.393031597 +0800
+@@ -2802,6 +2802,7 @@
+ 		mb_set_bits(bitmap_bh->b_data, ac->ac_b_ex.fe_start,
+ 			    ac->ac_b_ex.fe_len);
+ 		ext4_unlock_group(sb, ac->ac_b_ex.fe_group);
++		ext4_ios_write(sb, handle, bitmap_bh, EXT4_IOS_BLOCK_BITMAP, 1);
+ 		err = ext4_handle_dirty_metadata(handle, NULL, bitmap_bh);
+ 		if (!err)
+ 			err = -EAGAIN;
+@@ -2846,9 +2847,11 @@
+ 			   &sbi->s_flex_groups[flex_group].free_clusters);
+ 	}
+ 
++	ext4_ios_write(sb, handle, bitmap_bh, EXT4_IOS_BLOCK_BITMAP, 1);
+ 	err = ext4_handle_dirty_metadata(handle, NULL, bitmap_bh);
+ 	if (err)
+ 		goto out_err;
++	ext4_ios_write(sb, handle, gdp_bh, EXT4_IOS_GROUP_DESC, 1);
+ 	err = ext4_handle_dirty_metadata(handle, NULL, gdp_bh);
+ 
+ out_err:
+@@ -4709,9 +4712,11 @@
+ 
+ 	/* We dirtied the bitmap block */
+ 	BUFFER_TRACE(bitmap_bh, "dirtied bitmap block");
++	ext4_ios_write(sb, handle, bitmap_bh, EXT4_IOS_BLOCK_BITMAP, 1);
+ 	err = ext4_handle_dirty_metadata(handle, NULL, bitmap_bh);
+ 
+ 	/* And the group descriptor block */
++	ext4_ios_write(sb, handle, gd_bh, EXT4_IOS_GROUP_DESC, 1);
+ 	BUFFER_TRACE(gd_bh, "dirtied group descriptor block");
+ 	ret = ext4_handle_dirty_metadata(handle, NULL, gd_bh);
+ 	if (!err)
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/move_extent.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/move_extent.c	2012-06-20 00:13:28.708810018 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/move_extent.c	2012-06-20 00:14:13.393031597 +0800
+@@ -438,6 +438,8 @@
+ 						end_ext, eh, range_to_move);
+ 
+ 	if (depth) {
++		ext4_ios_write(orig_inode->i_sb, handle, orig_path->p_bh,
++			       EXT4_IOS_EXTENT_BLOCK, 1);
+ 		ret = ext4_handle_dirty_metadata(handle, orig_inode,
+ 						 orig_path->p_bh);
+ 		if (ret)
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/namei.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/namei.c	2012-06-20 00:13:28.708810018 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/namei.c	2012-06-20 00:14:13.393031597 +0800
+@@ -1252,9 +1252,11 @@
+ 		de = de2;
+ 	}
+ 	dx_insert_block(frame, hash2 + continued, newblock);
++	ext4_ios_write(dir->i_sb, handle, bh2, EXT4_IOS_DIR_ENTRY, 1);
+ 	err = ext4_handle_dirty_metadata(handle, dir, bh2);
+ 	if (err)
+ 		goto journal_error;
++	ext4_ios_write(dir->i_sb, handle, frame->bh, EXT4_IOS_DIR_ENTRY, 1);
+ 	err = ext4_handle_dirty_metadata(handle, dir, frame->bh);
+ 	if (err)
+ 		goto journal_error;
+@@ -1385,6 +1387,7 @@
+ 	dir->i_version++;
+ 	ext4_mark_inode_dirty(handle, dir);
+ 	BUFFER_TRACE(bh, "call ext4_handle_dirty_metadata");
++	ext4_ios_write(inode->i_sb, handle, bh, EXT4_IOS_DIR_ENTRY, 1);
+ 	err = ext4_handle_dirty_metadata(handle, dir, bh);
+ 	if (err)
+ 		ext4_std_error(dir->i_sb, err);
+@@ -1651,6 +1654,8 @@
+ 			dxtrace(dx_show_index("node", frames[1].entries));
+ 			dxtrace(dx_show_index("node",
+ 			       ((struct dx_node *) bh2->b_data)->entries));
++			ext4_ios_write(inode->i_sb, handle, bh2,
++				       EXT4_IOS_DIR_ENTRY, 1);
+ 			err = ext4_handle_dirty_metadata(handle, inode, bh2);
+ 			if (err)
+ 				goto journal_error;
+@@ -1677,6 +1682,8 @@
+ 			if (err)
+ 				goto journal_error;
+ 		}
++		ext4_ios_write(inode->i_sb, handle, frames[0].bh,
++			       EXT4_IOS_DIR_ENTRY, 1);
+ 		ext4_handle_dirty_metadata(handle, inode, frames[0].bh);
+ 	}
+ 	de = do_split(handle, dir, &bh, frame, &hinfo, &err);
+@@ -2137,6 +2144,8 @@
+ 	/* Insert this inode at the head of the on-disk orphan list... */
+ 	NEXT_ORPHAN(inode) = le32_to_cpu(EXT4_SB(sb)->s_es->s_last_orphan);
+ 	EXT4_SB(sb)->s_es->s_last_orphan = cpu_to_le32(inode->i_ino);
++	ext4_ios_write(sb, handle, EXT4_SB(sb)->s_sbh,
++		       EXT4_IOS_SUPER_BLOCK, 1);
+ 	err = ext4_handle_dirty_metadata(handle, NULL, EXT4_SB(sb)->s_sbh);
+ 	rc = ext4_mark_iloc_dirty(handle, inode, &iloc);
+ 	if (!err)
+@@ -2568,6 +2577,8 @@
+ 					ext4_current_time(new_dir);
+ 		ext4_mark_inode_dirty(handle, new_dir);
+ 		BUFFER_TRACE(new_bh, "call ext4_handle_dirty_metadata");
++		ext4_ios_write(old_dir->i_sb, handle, new_bh,
++			       EXT4_IOS_DIR_ENTRY, 1);
+ 		ext4_handle_dirty_metadata(handle, new_dir, new_bh);
+ 		brelse(new_bh);
+ 		new_bh = NULL;
+@@ -2619,6 +2630,8 @@
+ 		ext4_journal_get_write_access(handle, dir_bh);
+ 		PARENT_INO(dir_buf, buf_size) = cpu_to_le32(new_dir->i_ino);
+ 		BUFFER_TRACE(dir_bh, "call ext4_handle_dirty_metadata");
++		ext4_ios_write(old_dir->i_sb, handle, dir_bh,
++			       EXT4_IOS_DIR_ENTRY, 1);
+ 		ext4_handle_dirty_metadata(handle, old_dir, dir_bh);
+ 		ext4_dec_count(handle, old_dir);
+ 		if (new_inode) {
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/super.c	2012-06-20 00:13:28.708810018 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/super.c	2012-06-20 00:14:13.397031613 +0800
+@@ -3943,6 +3943,7 @@
+ 					&EXT4_SB(sb)->s_freeinodes_counter));
+ 	sb->s_dirt = 0;
+ 	BUFFER_TRACE(sbh, "marking dirty");
++	ext4_ios_write(sb, NULL, sbh, EXT4_IOS_SUPER_BLOCK, 1);
+ 	mark_buffer_dirty(sbh);
+ 	if (sync) {
+ 		error = sync_dirty_buffer(sbh);
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/xattr.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/xattr.c	2012-06-20 00:13:28.712810034 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/xattr.c	2012-06-20 00:14:13.397031613 +0800
+@@ -485,6 +485,8 @@
+ 		ext4_forget(handle, 1, inode, bh, bh->b_blocknr);
+ 	} else {
+ 		le32_add_cpu(&BHDR(bh)->h_refcount, -1);
++		ext4_ios_write(inode->i_sb, handle, bh,
++			       EXT4_IOS_EXTENDED_ATTR, 1);
+ 		error = ext4_handle_dirty_metadata(handle, inode, bh);
+ 		if (IS_SYNC(inode))
+ 			ext4_handle_sync(handle);
+@@ -706,10 +708,13 @@
+ 			unlock_buffer(bs->bh);
+ 			if (error == -EIO)
+ 				goto bad_block;
+-			if (!error)
++			if (!error) {
++				ext4_ios_write(sb, handle, bs->bh,
++					       EXT4_IOS_EXTENDED_ATTR, 1);
+ 				error = ext4_handle_dirty_metadata(handle,
+ 								   inode,
+ 								   bs->bh);
++			}
+ 			if (error)
+ 				goto cleanup;
+ 			goto inserted;
+@@ -778,6 +783,8 @@
+ 				ea_bdebug(new_bh, "reusing; refcount now=%d",
+ 					le32_to_cpu(BHDR(new_bh)->h_refcount));
+ 				unlock_buffer(new_bh);
++				ext4_ios_write(sb, handle, new_bh,
++					       EXT4_IOS_EXTENDED_ATTR, 1);
+ 				error = ext4_handle_dirty_metadata(handle,
+ 								   inode,
+ 								   new_bh);
+@@ -829,6 +836,8 @@
+ 			set_buffer_uptodate(new_bh);
+ 			unlock_buffer(new_bh);
+ 			ext4_xattr_cache_insert(new_bh);
++			ext4_ios_write(sb, handle, new_bh,
++				       EXT4_IOS_EXTENDED_ATTR, 1);
+ 			error = ext4_handle_dirty_metadata(handle,
+ 							   inode, new_bh);
+ 			if (error)

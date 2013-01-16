@@ -1,0 +1,82 @@
+From 810699dbbbfa1b5bf5df4e967907ed1beb6957dd Mon Sep 17 00:00:00 2001
+From: Robin Dong <sanbai@taobao.com>
+Date: Tue, 12 Jun 2012 10:19:58 +0800
+Subject: [PATCH v3] mm: fix wrong order of operations in __lru_cache_add()
+Patch-mainline: Will be in upstream soon.
+References: 
+
+When writing a new file with 2048 bytes buffer, such as write(fd, buffer, 2048), it will
+call generic_perform_write() twice for every page:
+
+	write_begin
+	mark_page_accessed(page) 
+	write_end
+
+	write_begin
+	mark_page_accessed(page) 
+	write_end
+
+The page 1~13th will be added to lru-pvecs in write_begin() and will *NOT* be added to
+active_list even they have be accessed twice because they are not PageLRU(page).
+But when page 14th comes, all pages in lru-pvecs will be moved to inactive_list
+(by __lru_cache_add() ) in first write_begin(), now page 14th *is* PageLRU(page).
+And after second write_end() only page 14th  will be in active_list.
+
+In Hadoop environment, we do comes to this situation: after writing a file, we find
+out that only 14th, 28th, 42th... page are in active_list and others in inactive_list. Now
+kswapd works, shrinks the inactive_list, the file only have 14th, 28th...pages in memory,
+the readahead request size will be broken to only 52k (13*4k), system's performance falls
+dramatically.
+
+This problem can also replay by below steps (the machine has 8G memory):
+
+	1. dd if=/dev/zero of=/test/file.out bs=1024 count=1048576
+	2. cat another 7.5G file to /dev/null
+	3. vmtouch -m 1G -v /test/file.out, it will show:
+
+	/test/file.out
+	[oooooooooooooooooooOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO] 187847/262144
+
+	the 'o' means same pages are in memory but same are not.
+
+
+The solution for this problem is simple: the 14th page should be added to lru_add_pvecs
+before mark_page_accessed() just as other pages.
+
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Reviewed-by: Minchan Kim <minchan@kernel.org>
+Reviewed-by: Johannes Weiner <hannes@cmpxchg.org>
+Acked-by: 
+
+---
+ mm/swap.c |   11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/mm/swap.c b/mm/swap.c
+index 4e7e2ec..bf03903 100644
+--- a/mm/swap.c
++++ b/mm/swap.c
+@@ -324,13 +324,22 @@
+ 
+ EXPORT_SYMBOL(mark_page_accessed);
+ 
++/*
++ * Order of operations is important: flush the pagevec when it's already
++ * full, not when adding the last page, to make sure that last page is
++ * not added to the LRU directly when passed to this function. Because
++ * mark_page_accessed() (called after this when writing) only activates
++ * pages that are on the LRU, linear writes in subpage chunks would see
++ * every PAGEVEC_SIZE page activated, which is unexpected.
++ */
+ void __lru_cache_add(struct page *page, enum lru_list lru)
+ {
+ 	struct pagevec *pvec = &get_cpu_var(lru_add_pvecs)[lru];
+ 
+ 	page_cache_get(page);
+-	if (!pagevec_add(pvec, page))
++	if (!pagevec_space(pvec))
+ 		____pagevec_lru_add(pvec, lru);
++	pagevec_add(pvec, page);
+ 	put_cpu_var(lru_add_pvecs);
+ }
+ 

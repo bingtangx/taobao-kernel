@@ -1,0 +1,62 @@
+From:   Mike Waychison <mikew@google.com>
+Date:   Mon Apr 25 13:48:51 2011 +0800
+Subject: [PATCH 19/24] sys-rq: add option to soft dump.
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+Signed-off-by: Mike Waychison <mikew@google.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/Documentation/sysrq.txt
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/Documentation/sysrq.txt	2011-12-21 22:40:51.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/Documentation/sysrq.txt	2011-12-21 22:41:46.000000000 +0800
+@@ -116,6 +116,10 @@
+ 
+ 'x'	- Used by xmon interface on ppc/powerpc platforms.
+ 
++'y'	- Trigger a 'soft' kmsg dump. Any kmsg_dump clients (mtdoops,
++          netoops, ramoops) will initiate a dump to their respective
++          backend.
++
+ 'z'	- Dump the ftrace buffer
+ 
+ '0'-'9' - Sets the console log level, controlling which kernel messages
+Index: linux-2.6.32-220.0.0.el5/drivers/char/sysrq.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/drivers/char/sysrq.c	2011-12-21 22:40:51.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/drivers/char/sysrq.c	2011-12-21 22:41:46.000000000 +0800
+@@ -38,6 +38,7 @@
+ #include <linux/workqueue.h>
+ #include <linux/hrtimer.h>
+ #include <linux/oom.h>
++#include <linux/kmsg_dump.h>
+ 
+ #include <asm/ptrace.h>
+ #include <asm/irq_regs.h>
+@@ -391,6 +392,17 @@
+ 	.enable_mask	= SYSRQ_ENABLE_RTNICE,
+ };
+ 
++static void sysrq_handle_softdump(int key, struct tty_struct *tty)
++{
++	kmsg_dump(KMSG_DUMP_SOFT, NULL);
++}
++static struct sysrq_key_op sysrq_softdump_op = {
++	.handler	= sysrq_handle_softdump,
++	.help_msg	= "soft-dump(Y)",
++	.action_msg	= "Trigger a soft dump",
++	.enable_mask	= SYSRQ_ENABLE_DUMP,
++};
++
+ /* Key Operations table and lock */
+ static DEFINE_SPINLOCK(sysrq_key_table_lock);
+ 
+@@ -447,7 +459,7 @@
+ 	/* x: May be registered on ppc/powerpc for xmon */
+ 	NULL,				/* x */
+ 	/* y: May be registered on sparc64 for global register dump */
+-	NULL,				/* y */
++	&sysrq_softdump_op,		/* y */
+ 	&sysrq_ftrace_dump_op,		/* z */
+ };
+ 

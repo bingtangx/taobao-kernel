@@ -1,0 +1,322 @@
+From 3ecdb3a193a5f224f084c04a63aa28cdccf4d7d0 Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Wed, 27 Oct 2010 21:30:10 -0400
+Subject: [PATCH 4/4] ext4: inline walk_page_buffers() into mpage_da_submit_io
+Patch-mainline: 2.6.37
+
+Expand the call:
+
+  if (walk_page_buffers(NULL, page_bufs, 0, len, NULL,
+                        ext4_bh_delay_or_unwritten))
+	goto redirty_page
+
+into mpage_da_submit_io().
+
+This will allow us to merge in mpage_put_bnr_to_bhs() in the next
+patch.
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
+index a14a82a..a5fb186 100644
+--- a/fs/ext4/extents.c
++++ b/fs/ext4/extents.c
+@@ -4109,6 +4109,8 @@ out:
+ 	if (allocated > map->m_len)
+ 		allocated = map->m_len;
+ 	ext4_ext_show_leaf(inode, path);
++	map->m_pblk = newblock;
++	map->m_len = allocated;
+ 	set_buffer_mapped(bh_result);
+ 	bh_result->b_bdev = inode->i_sb->s_bdev;
+ 	bh_result->b_blocknr = newblock;
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 06efd69..517bcad 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -958,7 +958,7 @@
+  * blocks.
+  */
+ static int ext4_ind_get_blocks(handle_t *handle, struct inode *inode,
+-			       ext4_lblk_t iblock, unsigned int maxblocks,
++			       struct ext4_map_blocks *map,
+ 			       struct buffer_head *bh_result,
+ 			       int flags)
+ {
+@@ -967,6 +967,8 @@
+ 	Indirect chain[4];
+ 	Indirect *partial;
+ 	ext4_fsblk_t goal;
++	ext4_lblk_t iblock = map->m_lblk;
++	unsigned int maxblocks = map->m_len;
+ 	int indirect_blks;
+ 	int blocks_to_boundary = 0;
+ 	int depth;
+@@ -1048,12 +1050,18 @@
+ 		goto cleanup;
+ 
+ 	set_buffer_new(bh_result);
++	map->m_flags |= EXT4_MAP_NEW;
+ 
+ 	ext4_update_inode_fsync_trans(handle, inode, 1);
+ got_it:
+ 	map_bh(bh_result, inode->i_sb, le32_to_cpu(chain[depth-1].key));
+-	if (count > blocks_to_boundary)
++	map->m_flags |= EXT4_MAP_MAPPED;
++	map->m_pblk = le32_to_cpu(chain[depth-1].key);
++	map->m_len = count;
++	if (count > blocks_to_boundary) {
+ 		set_buffer_boundary(bh_result);
++		map->m_flags |= EXT4_MAP_BOUNDARY;
++	}
+ 	err = count;
+ 	/* Clean up and exit */
+ 	partial = chain + depth - 1;	/* the whole chain */
+@@ -1295,8 +1303,7 @@
+ 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
+ 		retval =  ext4_ext_get_blocks(handle, inode, map, bh, 0);
+ 	} else {
+-		retval = ext4_ind_get_blocks(handle, inode, map->m_lblk, map->m_len,
+-					     bh, 0);
++		retval = ext4_ind_get_blocks(handle, inode, map, bh, 0);
+ 	}
+ 	up_read((&EXT4_I(inode)->i_data_sem));
+ 
+@@ -1356,8 +1363,7 @@
+ 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
+ 		retval =  ext4_ext_get_blocks(handle, inode, map, bh, flags);
+ 	} else {
+-		retval = ext4_ind_get_blocks(handle, inode, map->m_lblk,
+-					     map->m_len, bh, flags);
++		retval = ext4_ind_get_blocks(handle, inode, map, bh, flags);
+ 
+ 		if (retval > 0 && buffer_new(bh)) {
+ 			/*
+@@ -2085,7 +2085,8 @@ static void ext4_da_page_release_reservation(struct page *page,
+  *
+  * As pages are already locked by write_cache_pages(), we can't use it
+  */
+-static int mpage_da_submit_io(struct mpage_da_data *mpd)
++static int mpage_da_submit_io(struct mpage_da_data *mpd,
++			      struct ext4_map_blocks *map)
+ {
+ 	struct pagevec pvec;
+ 	unsigned long index, end;
+@@ -2093,9 +2094,10 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ 	struct inode *inode = mpd->inode;
+ 	struct address_space *mapping = inode->i_mapping;
+ 	loff_t size = i_size_read(inode);
+-	unsigned int len;
+-	struct buffer_head *page_bufs = NULL;
++	unsigned int len, block_start;
++	struct buffer_head *bh, *page_bufs = NULL;
+ 	int journal_data = ext4_should_journal_data(inode);
++	sector_t pblock = 0, cur_logical = 0;
+ 
+ 	BUG_ON(mpd->next_page <= mpd->first_page);
+ 	/*
+@@ -2113,7 +2115,7 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ 		if (nr_pages == 0)
+ 			break;
+ 		for (i = 0; i < nr_pages; i++) {
+-			int commit_write = 0;
++			int commit_write = 0, redirty_page = 0;
+ 			struct page *page = pvec.pages[i];
+ 
+ 			index = page->index;
+@@ -2124,6 +2126,12 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ 				len = size & ~PAGE_CACHE_MASK;
+ 			else
+ 				len = PAGE_CACHE_SIZE;
++			if (map) {
++				cur_logical = index << (PAGE_CACHE_SHIFT -
++							inode->i_blkbits);
++				pblock = map->m_pblk + (cur_logical -
++							map->m_lblk);
++			}
+ 			index++;
+ 
+ 			BUG_ON(!PageLocked(page));
+@@ -2146,15 +2154,38 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ 				}
+ 				commit_write = 1;
+ 			}
+-			page_bufs = page_buffers(page);
+-			if (walk_page_buffers(NULL, page_bufs, 0, len, NULL,
+-					      ext4_bh_delay_or_unwritten)) {
+-				/*
+-				 * We couldn't do block allocation for
+-				 * some reason.
+-				 */
++
++			bh = page_bufs = page_buffers(page);
++			block_start = 0;
++			do {
++				if (!bh)
++					goto redirty_page;
++				if (map && (cur_logical >= map->m_lblk) &&
++				    (cur_logical <= (map->m_lblk +
++						     (map->m_len - 1)))) {
++					if (buffer_delay(bh)) {
++						clear_buffer_delay(bh);
++						bh->b_blocknr = pblock;
++					}
++					if (buffer_unwritten(bh) ||
++					    buffer_mapped(bh))
++						BUG_ON(bh->b_blocknr != pblock);
++					if (map->m_flags & EXT4_MAP_UNINIT)
++						set_buffer_uninit(bh);
++					clear_buffer_unwritten(bh);
++				}
++
++				/* redirty page if block allocation undone */
++				if (buffer_delay(bh) || buffer_unwritten(bh))
++					redirty_page = 1;
++				bh = bh->b_this_page;
++				block_start += bh->b_size;
++				cur_logical++;
++				pblock++;
++			} while (bh != page_bufs);
++
++			if (redirty_page)
+ 				goto redirty_page;
+-			}
+ 
+ 			if (commit_write)
+ 				/* mark the buffer_heads as dirty & uptodate */
+@@ -2181,95 +2212,6 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ }
+ 
+ /*
+- * mpage_put_bnr_to_bhs - walk blocks and assign them actual numbers
+- *
+- * @mpd->inode - inode to walk through
+- * @exbh->b_blocknr - first block on a disk
+- * @exbh->b_size - amount of space in bytes
+- * @logical - first logical block to start assignment with
+- *
+- * the function goes through all passed space and put actual disk
+- * block numbers into buffer heads, dropping BH_Delay and BH_Unwritten
+- */
+-static void mpage_put_bnr_to_bhs(struct mpage_da_data *mpd, sector_t logical,
+-				 struct buffer_head *exbh)
+-{
+-	struct inode *inode = mpd->inode;
+-	struct address_space *mapping = inode->i_mapping;
+-	int blocks = exbh->b_size >> inode->i_blkbits;
+-	sector_t pblock = exbh->b_blocknr, cur_logical;
+-	struct buffer_head *head, *bh;
+-	pgoff_t index, end;
+-	struct pagevec pvec;
+-	int nr_pages, i;
+-
+-	index = logical >> (PAGE_CACHE_SHIFT - inode->i_blkbits);
+-	end = (logical + blocks - 1) >> (PAGE_CACHE_SHIFT - inode->i_blkbits);
+-	cur_logical = index << (PAGE_CACHE_SHIFT - inode->i_blkbits);
+-
+-	pagevec_init(&pvec, 0);
+-
+-	while (index <= end) {
+-		/* XXX: optimize tail */
+-		nr_pages = pagevec_lookup(&pvec, mapping, index, PAGEVEC_SIZE);
+-		if (nr_pages == 0)
+-			break;
+-		for (i = 0; i < nr_pages; i++) {
+-			struct page *page = pvec.pages[i];
+-
+-			index = page->index;
+-			if (index > end)
+-				break;
+-			index++;
+-
+-			BUG_ON(!PageLocked(page));
+-			BUG_ON(PageWriteback(page));
+-			BUG_ON(!page_has_buffers(page));
+-
+-			bh = page_buffers(page);
+-			head = bh;
+-
+-			/* skip blocks out of the range */
+-			do {
+-				if (cur_logical >= logical)
+-					break;
+-				cur_logical++;
+-			} while ((bh = bh->b_this_page) != head);
+-
+-			do {
+-				if (cur_logical >= logical + blocks)
+-					break;
+-
+-				if (buffer_delay(bh) ||
+-						buffer_unwritten(bh)) {
+-
+-					BUG_ON(bh->b_bdev != inode->i_sb->s_bdev);
+-
+-					if (buffer_delay(bh)) {
+-						clear_buffer_delay(bh);
+-						bh->b_blocknr = pblock;
+-					} else {
+-						/*
+-						 * unwritten already should have
+-						 * blocknr assigned. Verify that
+-						 */
+-						clear_buffer_unwritten(bh);
+-						BUG_ON(bh->b_blocknr != pblock);
+-					}
+-
+-				} else if (buffer_mapped(bh))
+-					BUG_ON(bh->b_blocknr != pblock);
+-
+-				cur_logical++;
+-				pblock++;
+-			} while ((bh = bh->b_this_page) != head);
+-		}
+-		pagevec_release(&pvec);
+-	}
+-}
+-
+-
+-/*
+  * __unmap_underlying_blocks - just a helper function to unmap
+  * set of blocks described by @bh
+  */
+@@ -2350,7 +2292,7 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+ {
+ 	int err, blks, get_blocks_flags;
+ 	struct buffer_head new;
+-	struct ext4_map_blocks map;
++	struct ext4_map_blocks map, *mapp = NULL;
+ 	sector_t next = mpd->b_blocknr;
+ 	unsigned max_blocks = mpd->b_size >> mpd->inode->i_blkbits;
+ 	loff_t disksize = EXT4_I(mpd->inode)->i_disksize;
+@@ -2438,19 +2380,12 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+ 	}
+ 	BUG_ON(blks == 0);
+ 
++	mapp = &map;
+ 	new.b_size = (blks << mpd->inode->i_blkbits);
+ 
+ 	if (buffer_new(&new))
+ 		__unmap_underlying_blocks(mpd->inode, &new);
+ 
+-	/*
+-	 * If blocks are delayed marked, we need to
+-	 * put actual blocknr and drop delayed bit
+-	 */
+-	if ((mpd->b_state & (1 << BH_Delay)) ||
+-	    (mpd->b_state & (1 << BH_Unwritten)))
+-		mpage_put_bnr_to_bhs(mpd, next, &new);
+-
+ 	if (ext4_should_order_data(mpd->inode)) {
+ 		err = ext4_jbd2_file_inode(handle, mpd->inode);
+ 		if (err)
+@@ -2474,7 +2409,7 @@ static void mpage_da_map_and_submit(struct mpage_da_data *mpd)
+ 	}
+ 
+ submit_io:
+-	mpage_da_submit_io(mpd);
++	mpage_da_submit_io(mpd, mapp);
+ 	mpd->io_done = 1;
+ }
+ 

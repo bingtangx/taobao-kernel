@@ -1,0 +1,92 @@
+From 32e45ff43eaf5c17f5a82c9ad358d515622c2562 Mon Sep 17 00:00:00 2001
+From: KOSAKI Motohiro <kosaki.motohiro@jp.fujitsu.com>
+Date: Wed, 15 Jun 2011 15:08:20 -0700
+Subject: [PATCH] mm: increase RECLAIM_DISTANCE to 30
+Patch-mainline: 3.0.0
+
+[zyh] By introducing this fix we can alleviate the phenomemon that kernel
+enables zone_reclaim_mode during boot by mistake on some servers.
+
+Recently, Robert Mueller reported (http://lkml.org/lkml/2010/9/12/236)
+that zone_reclaim_mode doesn't work properly on his new NUMA server (Dual
+Xeon E5520 + Intel S5520UR MB).  He is using Cyrus IMAPd and it's built on
+a very traditional single-process model.
+
+  * a master process which reads config files and manages the other
+    process
+  * multiple imapd processes, one per connection
+  * multiple pop3d processes, one per connection
+  * multiple lmtpd processes, one per connection
+  * periodical "cleanup" processes.
+
+There are thousands of independent processes.  The problem is, recent
+Intel motherboard turn on zone_reclaim_mode by default and traditional
+prefork model software don't work well on it.  Unfortunatelly, such models
+are still typical even in the 21st century.  We can't ignore them.
+
+This patch raises the zone_reclaim_mode threshold to 30.  30 doesn't have
+any specific meaning.  but 20 means that one-hop QPI/Hypertransport and
+such relatively cheap 2-4 socket machine are often used for traditional
+servers as above.  The intention is that these machines don't use
+zone_reclaim_mode.
+
+Note: ia64 and Power have arch specific RECLAIM_DISTANCE definitions.
+This patch doesn't change such high-end NUMA machine behavior.
+
+Dave Hansen said:
+
+: I know specifically of pieces of x86 hardware that set the information
+: in the BIOS to '21' *specifically* so they'll get the zone_reclaim_mode
+: behavior which that implies.
+:
+: They've done performance testing and run very large and scary benchmarks
+: to make sure that they _want_ this turned on.  What this means for them
+: is that they'll probably be de-optimized, at least on newer versions of
+: the kernel.
+:
+: If you want to do this for particular systems, maybe _that_'s what we
+: should do.  Have a list of specific configurations that need the
+: defaults overridden either because they're buggy, or they have an
+: unusual hardware configuration not really reflected in the distance
+: table.
+
+And later said:
+
+: The original change in the hardware tables was for the benefit of a
+: benchmark.  Said benchmark isn't going to get run on mainline until the
+: next batch of enterprise distros drops, at which point the hardware where
+: this was done will be irrelevant for the benchmark.  I'm sure any new
+: hardware will just set this distance to another yet arbitrary value to
+: make the kernel do what it wants.  :)
+:
+: Also, when the hardware got _set_ to this initially, I complained.  So, I
+: guess I'm getting my way now, with this patch.  I'm cool with it.
+
+Reported-by: Robert Mueller <robm@fastmail.fm>
+Signed-off-by: KOSAKI Motohiro <kosaki.motohiro@jp.fujitsu.com>
+Acked-by: Christoph Lameter <cl@linux.com>
+Acked-by: David Rientjes <rientjes@google.com>
+Reviewed-by: KAMEZAWA Hiroyuki <kamezawa.hiroyu@jp.fujitsu.com>
+Cc: Benjamin Herrenschmidt <benh@kernel.crashing.org>
+Cc: "Luck, Tony" <tony.luck@intel.com>
+Acked-by: Dave Hansen <dave@linux.vnet.ibm.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Zhu Yanhai <gaoyang.zyh@taobao.com>
+---
+ include/linux/topology.h |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+Index: linux-2.6.32-131.12.1.el5/include/linux/topology.h
+===================================================================
+--- linux-2.6.32-131.12.1.el5.orig/include/linux/topology.h
++++ linux-2.6.32-131.12.1.el5/include/linux/topology.h
+@@ -59,7 +59,7 @@ int arch_update_cpu_topology(void);
+  * (in whatever arch specific measurement units returned by node_distance())
+  * then switch on zone reclaim on boot.
+  */
+-#define RECLAIM_DISTANCE 20
++#define RECLAIM_DISTANCE 30
+ #endif
+ #ifndef PENALTY_FOR_NODE_WITH_CPUS
+ #define PENALTY_FOR_NODE_WITH_CPUS	(1)

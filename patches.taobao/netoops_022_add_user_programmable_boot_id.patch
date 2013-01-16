@@ -1,0 +1,151 @@
+From:   Mike Waychison <mikew@google.com>
+Date:   Mon Apr 25 13:48:51 2011 +0800
+Subject: [PATCH 22/24] netoops: add user programmable boot id.
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+Signed-off-by: Mike Waychison <mikew@google.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/drivers/net/Kconfig
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/drivers/net/Kconfig	2011-12-21 22:41:47.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/drivers/net/Kconfig	2011-12-21 22:41:47.000000000 +0800
+@@ -3297,6 +3297,7 @@
+ 
+ config NETOOPS
+ 	tristate "Network oops support"
++	depends on SYSFS
+ 	select NETPOLL_TARGETS
+ 	select NETPOLL_TARGETS_DYNAMIC
+ 	help
+@@ -3309,7 +3310,8 @@
+ 	def_bool false
+ 
+ config NETPOLL_TARGETS
+-	tristate
++	tristate "netpoll targets"
++	default y
+ 	select NETPOLL
+ 	select CONFIGFS_FS if NETPOLL_TARGETS_DYNAMIC
+ 
+Index: linux-2.6.32-220.0.0.el5/drivers/net/netoops.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/drivers/net/netoops.c	2011-12-21 22:41:47.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/drivers/net/netoops.c	2011-12-21 22:41:47.000000000 +0800
+@@ -91,6 +91,7 @@
+ 		__le16 type;
+ 		__le32 packet_count;
+ 		__le32 packet_no;
++		__le32 boot_id;
+ 		/*
+ 		 * NOTE: fixed length strings for a packet.  NULL
+ 		 * termination not required.
+@@ -103,6 +104,8 @@
+ 
+ static struct netoops_msg msg;
+ 
++static u32 netoops_boot_id;
++
+ static void setup_packet_header(int packet_count, struct pt_regs *regs,
+ 				int soft_dump)
+ {
+@@ -116,6 +119,7 @@
+ 	h->type = cpu_to_le16(soft_dump ? NETOOPS_TYPE_PRINTK_BUFFER_SOFT :
+ 					  NETOOPS_TYPE_PRINTK_BUFFER);
+ 	h->packet_count = cpu_to_le32(packet_count);
++	h->boot_id = cpu_to_le32(netoops_boot_id);
+ 	strncpy(h->kernel_version, utsname()->release,
+ 		min(sizeof(msg.header.kernel_version),
+ 		    sizeof(utsname()->release)));
+@@ -217,6 +221,49 @@
+ 	spin_unlock_irqrestore(&targets.lock, flags);
+ }
+ 
++static ssize_t netoops_show(struct kobject *kobj,
++			    struct kobj_attribute *attr,
++			    char *buf) {
++	if (!strcmp(attr->attr.name, "netoops_boot_id"))
++		snprintf(buf, PAGE_SIZE, "%d\n", netoops_boot_id);
++	buf[PAGE_SIZE - 1] = '\0';
++	return strnlen(buf, PAGE_SIZE);
++}
++
++static ssize_t netoops_store(struct kobject *kobj,
++			     struct kobj_attribute *attr,
++			     const char *buf,
++			     size_t count) {
++	if (!count)
++		return count;
++
++	if (!strcmp(attr->attr.name, "netoops_boot_id")) {
++		unsigned long tmp;
++		if (strict_strtoul(buf, 0, &tmp))
++			return -EINVAL;
++		if (tmp > UINT_MAX)
++			printk("Warning: truncating boot_id to 32bits.");
++		netoops_boot_id = tmp;
++	} else
++		return -EINVAL;
++
++	return count;
++}
++
++static struct kobj_attribute netoops_boot_number_attribute =
++	__ATTR(netoops_boot_id, 0666, netoops_show, netoops_store);
++
++static struct attribute *attrs[] = {
++	&netoops_boot_number_attribute.attr,
++	NULL,
++};
++
++static struct attribute_group attr_group = {
++	.attrs = attrs,
++};
++
++static struct kobject *netoops_kobj;
++
+ static struct kmsg_dumper netoops_dumper = {
+ 	.dump = netoops,
+ };
+@@ -233,6 +280,7 @@
+ 	BUILD_BUG_ON(offsetof(struct netoops_msg, header.type) != 10);
+ 	BUILD_BUG_ON(offsetof(struct netoops_msg, header.packet_count) != 12);
+ 	BUILD_BUG_ON(offsetof(struct netoops_msg, header.packet_no) != 16);
++	BUILD_BUG_ON(offsetof(struct netoops_msg, header.boot_id) != 20);
+ 
+ 	targets.default_local_port = NETOOPS_PORT;
+ 	targets.default_remote_port = NETOOPS_PORT;
+@@ -242,11 +290,23 @@
+ 	if (retval)
+ 		goto out;
+ 
++	netoops_kobj = kobject_create_and_add("netoops", kernel_kobj);
++	if (!netoops_kobj)
++		goto out_targets;
++
++	retval = sysfs_create_group(netoops_kobj, &attr_group);
++	if (retval)
++		goto out_kobj;
++
+ 	retval = kmsg_dump_register(&netoops_dumper);
+ 	if (retval)
+-		goto out_targets;
++		goto out_sysfs_group;
+ 
+ 	return 0;
++out_sysfs_group:
++	sysfs_remove_group(netoops_kobj, &attr_group);
++out_kobj:
++	kobject_put(netoops_kobj);
+ out_targets:
+ 	unregister_netpoll_targets(&targets);
+ out:
+@@ -256,6 +316,8 @@
+ static void __exit netoops_exit(void)
+ {
+ 	kmsg_dump_unregister(&netoops_dumper);
++	sysfs_remove_group(netoops_kobj, &attr_group);
++	kobject_put(netoops_kobj);
+ 	unregister_netpoll_targets(&targets);
+ }
+ 

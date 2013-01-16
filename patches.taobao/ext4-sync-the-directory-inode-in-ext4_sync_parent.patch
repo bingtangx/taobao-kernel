@@ -1,0 +1,76 @@
+From 0893ed458b4b1d7c7667ca7ffb8b11febe7e7e6c Mon Sep 17 00:00:00 2001
+From: Curt Wohlgemuth <curtw@google.com>
+Date: Sun, 10 Apr 2011 22:05:31 -0400
+Subject: [PATCH] ext4: sync the directory inode in ext4_sync_parent()
+Patch-mainline: commint 0893ed458b4b1d7c7667ca7ffb8b11febe7e7e6c
+References: 
+
+ext4 has taken the stance that, in the absence of a journal,
+when an fsync/fdatasync of an inode is done, the parent
+directory should be sync'ed if this inode entry is new.
+ext4_sync_parent(), which implements this, does indeed sync
+the dirent pages for parent directories, but it does not
+sync the directory *inode*.  This patch fixes this.
+
+Also now return error status from ext4_sync_parent().
+
+I tested this using a power fail test, which panics a
+machine running a file server getting requests from a
+client.  Without this patch, on about every other test run,
+the server is missing many, many files that had been synced.
+With this patch, on > 6 runs, I see zero files being lost.
+
+Google-bug-id: 4179519
+Signed-off-by: Curt Wohlgemuth <curtw@google.com>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Acked-by: Tao Ma <boyu.mt@taobao.com>
+
+---
+ fs/ext4/fsync.c |   17 ++++++++++++++---
+ 1 files changed, 14 insertions(+), 3 deletions(-)
+
+Index: linux-2.6.32-131.4.1.el5/fs/ext4/fsync.c
+===================================================================
+--- linux-2.6.32-131.4.1.el5.orig/fs/ext4/fsync.c
++++ linux-2.6.32-131.4.1.el5/fs/ext4/fsync.c
+@@ -42,9 +42,11 @@
+  * the parent directory's parent as well, and so on recursively, if
+  * they are also freshly created.
+  */
+-static void ext4_sync_parent(struct inode *inode)
++static int ext4_sync_parent(struct inode *inode)
+ {
++	struct writeback_control wbc;
+ 	struct dentry *dentry = NULL;
++	int ret = 0;
+ 
+ 	while (inode && ext4_test_inode_state(inode, EXT4_STATE_NEWENTRY)) {
+ 		ext4_clear_inode_state(inode, EXT4_STATE_NEWENTRY);
+@@ -53,8 +55,17 @@ static void ext4_sync_parent(struct inod
+ 		if (!dentry || !dentry->d_parent || !dentry->d_parent->d_inode)
+ 			break;
+ 		inode = dentry->d_parent->d_inode;
+-		sync_mapping_buffers(inode->i_mapping);
++		ret = sync_mapping_buffers(inode->i_mapping);
++		if (ret)
++			break;
++		memset(&wbc, 0, sizeof(wbc));
++		wbc.sync_mode = WB_SYNC_ALL;
++		wbc.nr_to_write = 0;         /* only write out the inode */
++		ret = sync_inode(inode, &wbc);
++		if (ret)
++			break;
+ 	}
++	return ret;
+ }
+ 
+ /*
+@@ -93,7 +104,7 @@ int ext4_sync_file(struct file *file, st
+ 	if (!journal) {
+ 		ret = simple_fsync(file, dentry, datasync);
+ 		if (!ret && !list_empty(&inode->i_dentry))
+-			ext4_sync_parent(inode);
++			ret = ext4_sync_parent(inode);
+ 		return ret;
+ 	}
+ 

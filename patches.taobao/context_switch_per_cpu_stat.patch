@@ -1,0 +1,55 @@
+From: Tao Ma <boyu.mt@taobao.com>
+Subject: Add Support for show the context swithes number for every cpu.
+Patch-mainline: In house
+References: 
+
+Acked-by: 
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+
+Index: linux-2.6.32-220.17.1.el5/fs/proc/stat.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/fs/proc/stat.c	2012-05-17 02:20:01.096376527 +0800
++++ linux-2.6.32-220.17.1.el5/fs/proc/stat.c	2012-05-17 02:20:20.320471853 +0800
+@@ -122,6 +122,10 @@
+ 		seq_printf(p, " %u", per_softirq_sums[i]);
+ 	seq_printf(p, "\n");
+ 
++	seq_printf(p, "per_cpu_ctxt");
++	nr_context_switches_cpu(p);
++	seq_printf(p, "\n");
++
+ 	return 0;
+ }
+ 
+Index: linux-2.6.32-220.17.1.el5/include/linux/kernel_stat.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/kernel_stat.h	2012-05-17 02:20:01.080376447 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/kernel_stat.h	2012-05-17 02:20:20.324471872 +0800
+@@ -43,6 +43,8 @@
+ #define kstat_this_cpu	__get_cpu_var(kstat)
+ 
+ extern unsigned long long nr_context_switches(void);
++extern void nr_context_switches_cpu(struct seq_file *p);
++
+ 
+ #ifndef CONFIG_GENERIC_HARDIRQS
+ #define kstat_irqs_this_cpu(irq) \
+Index: linux-2.6.32-220.17.1.el5/kernel/sched.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/kernel/sched.c	2012-05-17 02:20:01.084376471 +0800
++++ linux-2.6.32-220.17.1.el5/kernel/sched.c	2012-05-17 02:20:20.324471872 +0800
+@@ -3079,6 +3079,14 @@
+ 	return sum;
+ }
+ 
++void nr_context_switches_cpu(struct seq_file *p)
++{
++	int i;
++
++	for_each_possible_cpu(i)
++		seq_printf(p, " %llu", cpu_rq(i)->nr_switches);
++}
++
+ unsigned long long nr_context_switches(void)
+ {
+ 	int i;

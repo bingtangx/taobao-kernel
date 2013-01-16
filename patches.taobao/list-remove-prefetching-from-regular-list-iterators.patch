@@ -1,0 +1,122 @@
+From: Linus Torvalds <torvalds@linux-foundation.org>
+Subject: [PATCH] list: remove prefetching from regular list iterators 
+Patch-mainline:  v3.0-rc1
+References:
+
+This is removes the use of software prefetching from the regular list
+iterators.  We don't want it.  If you do want to prefetch in some
+iterator of yours, go right ahead.  Just don't expect the iterator to do
+it, since normally the downsides are bigger than the upsides.
+  
+It also replaces <linux/prefetch.h> with <linux/const.h>, because the
+use of LIST_POISON ends up needing it.  <linux/poison.h> is sadly not
+self-contained, and including prefetch.h just happened to hide that.
+    
+Suggested by David Miller (networking has a lot of regular lists that
+are often empty or a single entry, and prefetching is not going to do
+anything but add useless instructions).
+
+[Notes from Liu Zheng]
+This is a combined patch with upstream commit e66eed65, 75d65a42 and a1e4891f.
+e66eed65 and 75d65a42 are backported by Redhat in rhel 6.2 (2.6.32-220).
+e66eed65 removes prefetching from regular list iterator. 75d65a42 removes
+software prefetching in hlist iterator. a1e4891fd removes prefetch() from
+<linux/skbuff.h> and "netlabel_addrlist.h"
+prefetch() is removed from __d_find_alias() according to Andi Kleen's patch.
+In addition, <linux/prefetch.h> is retained in <linux/list.h> because of build 
+dependency.
+    
+Acked-by: Ingo Molnar <mingo@elte.hu>
+Acked-by: David S. Miller <davem@davemloft.net>
+Cc: linux-arch@vger.kernel.org
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-220.2.1.el5/fs/dcache.c
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/fs/dcache.c	2012-02-24 11:55:52.745598778 +0800
++++ linux-2.6.32-220.2.1.el5/fs/dcache.c	2012-02-24 11:55:57.485622269 +0800
+@@ -356,7 +356,6 @@
+ 	while (next != head) {
+ 		tmp = next;
+ 		next = tmp->next;
+-		prefetch(next);
+ 		alias = list_entry(tmp, struct dentry, d_alias);
+  		if (S_ISDIR(inode->i_mode) || !d_unhashed(alias)) {
+ 			if (IS_ROOT(alias) &&
+Index: linux-2.6.32-220.2.1.el5/include/linux/skbuff.h
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/include/linux/skbuff.h	2012-02-24 11:55:52.721598657 +0800
++++ linux-2.6.32-220.2.1.el5/include/linux/skbuff.h	2012-02-24 11:55:57.489622294 +0800
+@@ -1726,7 +1726,7 @@
+ 
+ #define skb_queue_walk(queue, skb) \
+ 		for (skb = (queue)->next;					\
+-		     prefetch(skb->next), (skb != (struct sk_buff *)(queue));	\
++		     skb != (struct sk_buff *)(queue);				\
+ 		     skb = skb->next)
+ 
+ #define skb_queue_walk_safe(queue, skb, tmp)					\
+@@ -1735,7 +1735,7 @@
+ 		     skb = tmp, tmp = skb->next)
+ 
+ #define skb_queue_walk_from(queue, skb)						\
+-		for (; prefetch(skb->next), (skb != (struct sk_buff *)(queue));	\
++		for (; skb != (struct sk_buff *)(queue);			\
+ 		     skb = skb->next)
+ 
+ #define skb_queue_walk_from_safe(queue, skb, tmp)				\
+@@ -1745,7 +1745,7 @@
+ 
+ #define skb_queue_reverse_walk(queue, skb) \
+ 		for (skb = (queue)->prev;					\
+-		     prefetch(skb->prev), (skb != (struct sk_buff *)(queue));	\
++		     skb != (struct sk_buff *)(queue);				\
+ 		     skb = skb->prev)
+ 
+ 
+Index: linux-2.6.32-220.2.1.el5/net/netlabel/netlabel_addrlist.h
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/net/netlabel/netlabel_addrlist.h	2012-02-24 11:55:52.729598694 +0800
++++ linux-2.6.32-220.2.1.el5/net/netlabel/netlabel_addrlist.h	2012-02-24 11:55:57.489622294 +0800
+@@ -96,12 +96,12 @@
+ 
+ #define netlbl_af4list_foreach(iter, head)				\
+ 	for (iter = __af4list_valid((head)->next, head);		\
+-	     prefetch(iter->list.next), &iter->list != (head);		\
++	     &iter->list != (head);					\
+ 	     iter = __af4list_valid(iter->list.next, head))
+ 
+ #define netlbl_af4list_foreach_rcu(iter, head)				\
+ 	for (iter = __af4list_valid_rcu((head)->next, head);		\
+-	     prefetch(iter->list.next),	&iter->list != (head);		\
++	     &iter->list != (head);					\
+ 	     iter = __af4list_valid_rcu(iter->list.next, head))
+ 
+ #define netlbl_af4list_foreach_safe(iter, tmp, head)			\
+@@ -164,12 +164,12 @@
+ 
+ #define netlbl_af6list_foreach(iter, head)				\
+ 	for (iter = __af6list_valid((head)->next, head);		\
+-	     prefetch(iter->list.next),	&iter->list != (head);		\
++	     &iter->list != (head);					\
+ 	     iter = __af6list_valid(iter->list.next, head))
+ 
+ #define netlbl_af6list_foreach_rcu(iter, head)				\
+ 	for (iter = __af6list_valid_rcu((head)->next, head);		\
+-	     prefetch(iter->list.next),	&iter->list != (head);		\
++	     &iter->list != (head);					\
+ 	     iter = __af6list_valid_rcu(iter->list.next, head))
+ 
+ #define netlbl_af6list_foreach_safe(iter, tmp, head)			\
+Index: linux-2.6.32-220.2.1.el5/tools/perf/util/include/linux/list.h
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/tools/perf/util/include/linux/list.h	2012-02-24 11:55:52.737598729 +0800
++++ linux-2.6.32-220.2.1.el5/tools/perf/util/include/linux/list.h	2012-02-24 11:55:57.489622294 +0800
+@@ -23,5 +23,5 @@
+  * @head: the head for your list.
+  */
+ #define list_for_each_from(pos, head) \
+-	for (; prefetch(pos->next), pos != (head); pos = pos->next)
++	for (; pos != (head); pos = pos->next)
+ #endif

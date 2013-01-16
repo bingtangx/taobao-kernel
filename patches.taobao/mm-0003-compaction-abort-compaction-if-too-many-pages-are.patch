@@ -1,0 +1,109 @@
+From f9e35b3b41f47c4e17d8132edbcab305a6aaa4b0 Mon Sep 17 00:00:00 2001
+From: Mel Gorman <mgorman@suse.de>
+Date: Wed, 15 Jun 2011 15:08:52 -0700
+Subject: [PATCH] mm: compaction: abort compaction if too many pages are isolated and caller is asynchronous V2
+Patch-mainline: 3.0
+
+Asynchronous compaction is used when promoting to huge pages.  This is all
+very nice but if there are a number of processes in compacting memory, a
+large number of pages can be isolated.  An "asynchronous" process can
+stall for long periods of time as a result with a user reporting that
+firefox can stall for 10s of seconds.  This patch aborts asynchronous
+compaction if too many pages are isolated as it's better to fail a
+hugepage promotion than stall a process.
+
+[minchan.kim@gmail.com: return COMPACT_PARTIAL for abort]
+Reported-and-tested-by: Ury Stankevich <urykhy@gmail.com>
+Signed-off-by: Mel Gorman <mgorman@suse.de>
+Reviewed-by: Minchan Kim <minchan.kim@gmail.com>
+Reviewed-by: Michal Hocko <mhocko@suse.cz>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ mm/compaction.c |   29 ++++++++++++++++++++++++-----
+ 1 files changed, 24 insertions(+), 5 deletions(-)
+
+Index: linux-2.6.32-220.13.1.el5/mm/compaction.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/mm/compaction.c	2012-04-19 17:26:57.799091854 +0800
++++ linux-2.6.32-220.13.1.el5/mm/compaction.c	2012-04-19 17:27:11.247158326 +0800
+@@ -248,11 +248,18 @@
+ 	return isolated > (inactive + active) / 2;
+ }
+ 
++/* possible outcome of isolate_migratepages */
++typedef enum {
++	ISOLATE_ABORT,		/* Abort compaction now */
++	ISOLATE_NONE,		/* No pages isolated, continue scanning */
++	ISOLATE_SUCCESS,	/* Pages isolated, migrate */
++} isolate_migrate_t;
++
+ /*
+  * Isolate all pages that can be migrated from the block pointed to by
+  * the migrate scanner within compact_control.
+  */
+-static unsigned long isolate_migratepages(struct zone *zone,
++static isolate_migrate_t isolate_migratepages(struct zone *zone,
+ 					struct compact_control *cc)
+ {
+ 	unsigned long low_pfn, end_pfn;
+@@ -268,7 +275,7 @@
+ 	/* Do not cross the free scanner or scan within a memory hole */
+ 	if (end_pfn > cc->free_pfn || !pfn_valid(low_pfn)) {
+ 		cc->migrate_pfn = end_pfn;
+-		return 0;
++		return ISOLATE_NONE;
+ 	}
+ 
+ 	/*
+@@ -277,10 +284,14 @@
+ 	 * delay for some time until fewer pages are isolated
+ 	 */
+ 	while (unlikely(too_many_isolated(zone))) {
++		/* async migration should just abort */
++		if (!cc->sync)
++			return ISOLATE_ABORT;
++
+ 		congestion_wait(BLK_RW_ASYNC, HZ/10);
+ 
+ 		if (fatal_signal_pending(current))
+-			return 0;
++			return ISOLATE_ABORT;
+ 	}
+ 
+ 	/* Time to isolate some pages for migration */
+@@ -384,7 +395,7 @@
+ 	spin_unlock_irq(&zone->lru_lock);
+ 	cc->migrate_pfn = low_pfn;
+ 
+-	return cc->nr_migratepages;
++	return ISOLATE_SUCCESS;
+ }
+ 
+ /*
+@@ -484,8 +495,15 @@
+ 	while ((ret = compact_finished(zone, cc)) == COMPACT_CONTINUE) {
+ 		unsigned long nr_migrate, nr_remaining;
+ 
+-		if (!isolate_migratepages(zone, cc))
++		switch (isolate_migratepages(zone, cc)) {
++		case ISOLATE_ABORT:
++			ret = COMPACT_PARTIAL;
++			goto out;
++		case ISOLATE_NONE:
+ 			continue;
++		case ISOLATE_SUCCESS:
++			;
++		}
+ 
+ 		nr_migrate = cc->nr_migratepages;
+ 		migrate_pages(&cc->migratepages, compaction_alloc,
+@@ -507,6 +525,7 @@
+ 
+ 	}
+ 
++out:
+ 	/* Release free pages and check accounting */
+ 	cc->nr_freepages -= release_freepages(&cc->freepages);
+ 	VM_BUG_ON(cc->nr_freepages != 0);

@@ -1,0 +1,150 @@
+From 5757a6d76cdf6dda2a492c09b985c015e86779b1 Mon Sep 17 00:00:00 2001
+From: Dan Williams <dan.j.williams@intel.com>
+Date: Sat, 23 Jul 2011 20:44:25 +0200
+Subject: [PATCH] block: strict rq_affinity
+Patch-mainline: already
+
+Some systems benefit from completions always being steered to the strict
+requester cpu rather than the looser "per-socket" steering that
+blk_cpu_to_group() attempts by default. This is because the first
+CPU in the group mask ends up being completely overloaded with work,
+while the others (including the original submitter) has power left
+to spare.
+
+Allow the strict mode to be set by writing '2' to the sysfs control
+file. This is identical to the scheme used for the nomerges file,
+where '2' is a more aggressive setting than just being turned on.
+
+echo 2 > /sys/block/<bdev>/queue/rq_affinity
+
+Gao Yang rebases this on the current rhel6 kernel.
+
+Cc: Christoph Hellwig <hch@infradead.org>
+Cc: Roland Dreier <roland@purestorage.com>
+Tested-by: Dave Jiang <dave.jiang@intel.com>
+Signed-off-by: Dan Williams <dan.j.williams@intel.com>
+Signed-off-by: Jens Axboe <jaxboe@fusionio.com>
+Signed-off-by: Gao Yang <gaoyang.zyh@taobao.com>
+---
+Index: linux-2.6.32-220.17.1.el5/Documentation/block/queue-sysfs.txt
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/Documentation/block/queue-sysfs.txt	2012-05-17 02:20:36.636552759 +0800
++++ linux-2.6.32-220.17.1.el5/Documentation/block/queue-sysfs.txt	2012-05-17 02:21:13.192734033 +0800
+@@ -45,9 +45,13 @@
+ 
+ rq_affinity (RW)
+ ----------------
+-If this option is enabled, the block layer will migrate request completions
+-to the CPU that originally submitted the request. For some workloads
+-this provides a significant reduction in CPU cycles due to caching effects.
++If this option is '1', the block layer will migrate request completions to the
++cpu "group" that originally submitted the request. For some workloads this
++provides a significant reduction in CPU cycles due to caching effects.
++
++For storage configurations that need to maximize distribution of completion
++processing setting this option to '2' forces the completion to run on the
++requesting cpu (bypassing the "group" aggregation logic).
+ 
+ scheduler (RW)
+ --------------
+Index: linux-2.6.32-220.17.1.el5/block/blk-core.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/block/blk-core.c	2012-05-17 02:20:36.624552700 +0800
++++ linux-2.6.32-220.17.1.el5/block/blk-core.c	2012-05-17 02:21:13.192734033 +0800
+@@ -1412,7 +1412,7 @@
+ 	spin_lock_irq(q->queue_lock);
+ 	if (test_bit(QUEUE_FLAG_SAME_COMP, &q->queue_flags) ||
+ 	    bio_flagged(bio, BIO_CPU_AFFINE))
+-		req->cpu = blk_cpu_to_group(smp_processor_id());
++		req->cpu = smp_processor_id();
+ 	if (queue_should_plug(q) && elv_queue_empty(q))
+ 		blk_plug_device(q);
+ 
+Index: linux-2.6.32-220.17.1.el5/block/blk-softirq.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/block/blk-softirq.c	2012-05-17 02:20:36.616552660 +0800
++++ linux-2.6.32-220.17.1.el5/block/blk-softirq.c	2012-05-17 02:21:13.192734033 +0800
+@@ -103,22 +103,25 @@
+ 
+ void __blk_complete_request(struct request *req)
+ {
++	int ccpu, cpu, group_cpu = NR_CPUS;
+ 	struct request_queue *q = req->q;
+ 	unsigned long flags;
+-	int ccpu, cpu, group_cpu;
+ 
+ 	BUG_ON(!q->softirq_done_fn);
+ 
+ 	local_irq_save(flags);
+ 	cpu = smp_processor_id();
+-	group_cpu = blk_cpu_to_group(cpu);
+ 
+ 	/*
+ 	 * Select completion CPU
+ 	 */
+-	if (test_bit(QUEUE_FLAG_SAME_COMP, &q->queue_flags) && req->cpu != -1)
++	if (test_bit(QUEUE_FLAG_SAME_COMP, &q->queue_flags) && req->cpu != -1) {
+ 		ccpu = req->cpu;
+-	else
++		if (!test_bit(QUEUE_FLAG_SAME_FORCE, &q->queue_flags)) {
++			ccpu = blk_cpu_to_group(ccpu);
++			group_cpu = blk_cpu_to_group(cpu);
++		}
++	} else
+ 		ccpu = cpu;
+ 
+ 	if (ccpu == cpu || ccpu == group_cpu) {
+Index: linux-2.6.32-220.17.1.el5/block/blk-sysfs.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/block/blk-sysfs.c	2012-05-17 02:20:36.628552724 +0800
++++ linux-2.6.32-220.17.1.el5/block/blk-sysfs.c	2012-05-17 02:21:13.192734033 +0800
+@@ -226,8 +226,9 @@
+ static ssize_t queue_rq_affinity_show(struct request_queue *q, char *page)
+ {
+ 	bool set = test_bit(QUEUE_FLAG_SAME_COMP, &q->queue_flags);
++	bool force = test_bit(QUEUE_FLAG_SAME_FORCE, &q->queue_flags);
+ 
+-	return queue_var_show(set, page);
++	return queue_var_show(set << force, page);
+ }
+ 
+ static ssize_t
+@@ -239,10 +240,14 @@
+ 
+ 	ret = queue_var_store(&val, page, count);
+ 	spin_lock_irq(q->queue_lock);
+-	if (val)
++	if (val) {
+ 		queue_flag_set(QUEUE_FLAG_SAME_COMP, q);
+-	else
+-		queue_flag_clear(QUEUE_FLAG_SAME_COMP,  q);
++		if (val == 2)
++			queue_flag_set(QUEUE_FLAG_SAME_FORCE, q);
++	} else {
++		queue_flag_clear(QUEUE_FLAG_SAME_COMP, q);
++		queue_flag_clear(QUEUE_FLAG_SAME_FORCE, q);
++	}
+ 	spin_unlock_irq(q->queue_lock);
+ #endif
+ 	return ret;
+Index: linux-2.6.32-220.17.1.el5/include/linux/blkdev.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/blkdev.h	2012-05-17 02:20:36.612552641 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/blkdev.h	2012-05-17 02:21:13.192734033 +0800
+@@ -444,7 +444,7 @@
+ #define QUEUE_FLAG_ELVSWITCH	8	/* don't use elevator, just do FIFO */
+ #define QUEUE_FLAG_BIDI		9	/* queue supports bidi requests */
+ #define QUEUE_FLAG_NOMERGES    10	/* disable merge attempts */
+-#define QUEUE_FLAG_SAME_COMP   11	/* force complete on same CPU */
++#define QUEUE_FLAG_SAME_COMP   11	/* complete on same CPU-group */
+ #define QUEUE_FLAG_FAIL_IO     12	/* fake timeout */
+ #define QUEUE_FLAG_STACKABLE   13	/* supports request stacking */
+ #define QUEUE_FLAG_NONROT      14	/* non-rotational device (SSD) */
+@@ -453,6 +453,7 @@
+ #define QUEUE_FLAG_CQ	       16	/* hardware does queuing */
+ #define QUEUE_FLAG_DISCARD     17	/* supports DISCARD */
+ #define QUEUE_FLAG_ADD_RANDOM  18	/* Contributes to random pool */
++#define QUEUE_FLAG_SAME_FORCE  19	/* force complete on same CPU */
+ 
+ #define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
+ 				 (1 << QUEUE_FLAG_CLUSTER) |		\

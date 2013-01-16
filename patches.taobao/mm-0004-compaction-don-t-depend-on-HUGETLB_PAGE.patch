@@ -1,0 +1,49 @@
+From 33a938774fdb9933e9c77504b035f4f87c0859df Mon Sep 17 00:00:00 2001
+From: Andrea Arcangeli <aarcange@redhat.com>
+Date: Tue, 25 Jan 2011 15:07:25 -0800
+Subject: [PATCH] mm: compaction: don't depend on HUGETLB_PAGE
+Patch-mainline: 2.6.38
+
+Commit 5d6892407 ("thp: select CONFIG_COMPACTION if TRANSPARENT_HUGEPAGE
+enabled") causes this warning during the configuration process:
+
+  warning: (TRANSPARENT_HUGEPAGE) selects COMPACTION which has unmet
+  direct dependencies (EXPERIMENTAL && HUGETLB_PAGE && MMU)
+
+COMPACTION doesn't depend on HUGETLB_PAGE, it doesn't depend on THP
+either, it is also useful for regular alloc_pages(order > 0) including
+the very kernel stack during fork (THREAD_ORDER = 1).  It's always
+better to enable COMPACTION.
+
+The warning should be an error because we would end up with MIGRATION
+not selected, and COMPACTION wouldn't work without migration (despite it
+seems to build with an inline migrate_pages returning -ENOSYS).
+
+I'd also like to remove EXPERIMENTAL: compaction has been in the kernel
+for some releases (for full safety the default remains disabled which I
+think is enough).
+
+Signed-off-by: Andrea Arcangeli <aarcange@redhat.com>
+Reported-by: Luca Tettamanti <kronos.it@gmail.com>
+Tested-by: Luca Tettamanti <kronos.it@gmail.com>
+Cc: Mel Gorman <mel@csn.ul.ie>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ mm/Kconfig |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+Index: linux-2.6.32-131.4.1.el6/mm/Kconfig
+===================================================================
+--- linux-2.6.32-131.4.1.el6.orig/mm/Kconfig
++++ linux-2.6.32-131.4.1.el6/mm/Kconfig
+@@ -173,7 +173,7 @@ config COMPACTION
+ 	bool "Allow for memory compaction"
+ 	def_bool y
+ 	select MIGRATION
+-	depends on EXPERIMENTAL && HUGETLB_PAGE && MMU
++	depends on MMU
+ 	help
+ 	  Allows the compaction of memory for the allocation of huge pages.
+ 

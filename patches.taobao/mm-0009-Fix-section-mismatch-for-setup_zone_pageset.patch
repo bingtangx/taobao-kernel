@@ -1,0 +1,28 @@
+From 58c2ee4007bea04cc37041fcbd380fadb7b7be82 Mon Sep 17 00:00:00 2001
+From: Nikanth Karthikesan <knikanth@suse.de>
+Date: Tue, 15 Mar 2011 10:59:02 +0530
+Subject: [PATCH] mm: Fix section mismatch for setup_zone_pageset()
+Patch-mainline: 2.6.38
+
+build_all_zonelists() which is not __meminit, calls setup_zone_pageset().
+
+Signed-off-by: Nikanth Karthikesan <knikanth@suse.de>
+Signed-off-by: Jiri Kosina <jkosina@suse.cz>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ mm/page_alloc.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+Index: linux-2.6.32-220.0.0.el5/mm/page_alloc.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/mm/page_alloc.c	2011-12-13 14:54:08.242600243 +0800
++++ linux-2.6.32-220.0.0.el5/mm/page_alloc.c	2011-12-13 14:55:23.258972223 +0800
+@@ -3595,7 +3595,7 @@
+ 
+ #endif
+ 
+-static __meminit void setup_zone_pageset(struct zone *zone)
++static void setup_zone_pageset(struct zone *zone)
+ {
+ 	int cpu;
+ 

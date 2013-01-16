@@ -1,0 +1,121 @@
+From 78e07d7a752b79d90935005a240edc6fece8675a Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Sun, 20 Nov 2011 23:08:20 +0800
+Subject: [PATCH 08/22] ext4: Create a new function ext4_init_new_dir.
+Patch-mainline: in-house
+
+Currently, the initialization of dot and dotdot are encapsulated in
+ext4_mkdir and also bond with dir_block. So create a new function
+named ext4_init_new_dir and the initialization is moved to
+ext4_init_dot_dotdot which only accepts a 'de'.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 0fdd221..2cd014c 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -2040,6 +2040,8 @@ extern loff_t ext4_llseek(struct file *file, loff_t offset, int origin);
+ extern const struct inode_operations ext4_dir_inode_operations;
+ extern const struct inode_operations ext4_special_inode_operations;
+ extern struct dentry *ext4_get_parent(struct dentry *child);
++void ext4_init_dot_dotdot(struct inode *parent, struct inode *inode,
++			  struct ext4_dir_entry_2 *de, int blocksize);
+ 
+ /* symlink.c */
+ extern const struct inode_operations ext4_symlink_inode_operations;
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index 9235252..4856746 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -1796,13 +1796,54 @@ retry:
+ 	return err;
+ }
+ 
++void ext4_init_dot_dotdot(struct inode *parent, struct inode *inode,
++			  struct ext4_dir_entry_2 *de, int blocksize)
++{
++	de->inode = cpu_to_le32(inode->i_ino);
++	de->name_len = 1;
++	de->rec_len = ext4_rec_len_to_disk(EXT4_DIR_REC_LEN(de->name_len),
++					   blocksize);
++	strcpy(de->name, ".");
++	ext4_set_de_type(parent->i_sb, de, S_IFDIR);
++	de = ext4_next_entry(de, blocksize);
++	de->inode = cpu_to_le32(parent->i_ino);
++	de->rec_len = ext4_rec_len_to_disk(blocksize - EXT4_DIR_REC_LEN(1),
++					   blocksize);
++	de->name_len = 2;
++	strcpy(de->name, "..");
++	ext4_set_de_type(parent->i_sb, de, S_IFDIR);
++	inode->i_nlink = 2;
++}
++
++static int ext4_init_new_dir(handle_t *handle, struct inode *parent,
++			     struct inode *inode)
++{
++	struct buffer_head *dir_block = NULL;
++	struct ext4_dir_entry_2 *de;
++	int err;
++	int blocksize = inode->i_sb->s_blocksize;
++
++	inode->i_size = EXT4_I(inode)->i_disksize = blocksize;
++	dir_block = ext4_bread(handle, inode, 0, 1, &err);
++	if (!dir_block)
++		goto out;
++	BUFFER_TRACE(dir_block, "get_write_access");
++	err = ext4_journal_get_write_access(handle, dir_block);
++	if (err)
++		goto out;
++	de = (struct ext4_dir_entry_2 *)dir_block->b_data;
++	ext4_init_dot_dotdot(parent, inode, de, blocksize);
++	BUFFER_TRACE(dir_block, "call ext4_handle_dirty_metadata");
++	err = ext4_handle_dirty_metadata(handle, inode, dir_block);
++out:
++	brelse(dir_block);
++	return err;
++}
++
+ static int ext4_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+ {
+ 	handle_t *handle;
+ 	struct inode *inode;
+-	struct buffer_head *dir_block;
+-	struct ext4_dir_entry_2 *de;
+-	unsigned int blocksize = dir->i_sb->s_blocksize;
+ 	int err, retries = 0;
+ 
+ 	if (EXT4_DIR_LINK_MAX(dir))
+@@ -1826,30 +1867,9 @@ retry:
+ 
+ 	inode->i_op = &ext4_dir_inode_operations;
+ 	inode->i_fop = &ext4_dir_operations;
+-	inode->i_size = EXT4_I(inode)->i_disksize = inode->i_sb->s_blocksize;
+-	dir_block = ext4_bread(handle, inode, 0, 1, &err);
+-	if (!dir_block)
++	err = ext4_init_new_dir(handle, dir, inode);
++	if (err)
+ 		goto out_clear_inode;
+-	BUFFER_TRACE(dir_block, "get_write_access");
+-	ext4_journal_get_write_access(handle, dir_block);
+-	de = (struct ext4_dir_entry_2 *) dir_block->b_data;
+-	de->inode = cpu_to_le32(inode->i_ino);
+-	de->name_len = 1;
+-	de->rec_len = ext4_rec_len_to_disk(EXT4_DIR_REC_LEN(de->name_len),
+-					   blocksize);
+-	strcpy(de->name, ".");
+-	ext4_set_de_type(dir->i_sb, de, S_IFDIR);
+-	de = ext4_next_entry(de, blocksize);
+-	de->inode = cpu_to_le32(dir->i_ino);
+-	de->rec_len = ext4_rec_len_to_disk(blocksize - EXT4_DIR_REC_LEN(1),
+-					   blocksize);
+-	de->name_len = 2;
+-	strcpy(de->name, "..");
+-	ext4_set_de_type(dir->i_sb, de, S_IFDIR);
+-	inode->i_nlink = 2;
+-	BUFFER_TRACE(dir_block, "call ext4_handle_dirty_metadata");
+-	ext4_handle_dirty_metadata(handle, dir, dir_block);
+-	brelse(dir_block);
+ 	ext4_mark_inode_dirty(handle, inode);
+ 	err = ext4_add_entry(handle, dentry, inode);
+ 	if (err) {

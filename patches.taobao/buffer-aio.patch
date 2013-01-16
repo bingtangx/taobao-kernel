@@ -1,0 +1,722 @@
+From: Zhu Yanhai <gaoyang.zyh@taobao.com>
+Date: Thu, 12 Jan 2012 12:11:00 +0800
+Subject: [PATCH] A readahead complete notify approach to implement buffer aio
+Patch-mainline: not yet
+
+The current libaio/aio has to be Direct-IO, otherwise it falls back into sync IO.
+However, the aio core has already been asychronous naturally. This patch adds a complete
+notify mechanism to implement buffer aio, the main idea is to readahead()-like in
+io_submit(), counts the non-uptodated pages assocaiated with each iocb, then put each ref
+in the bio complete path just before unlock_page(), and hook them on to the aio ring buffer
+finally when the ref drops to zero. In io_getevents(), we call vfs_read() as a safe net
+since there is still little possibility that the pages had brought in were reclaimed
+between io_submit() and io_getevents().
+
+I have tested this patch for a while, for the small size random io request, its
+performance is more or less the same with the traditional aio, for the big io request,
+the overhead of one extra memory copy arises.
+
+I think so far it has at least below obvious drawbacks,
+
+* mpage_readpage() is a really narrow interface, I have no way to pass down
+the new control struct baiocb, so I just put it into struct task_struct and
+refer it by current() as a workaround.
+
+* the do_baio_read() routine is heavily similar with do_generic_file_read(), but
+the latter is really hard to modify. I think we may stuff these code down into the
+readahead path to reduce code reduplication.
+
+Hopefully the explanations are clear enough and don't muddy the water any worse.
+
+Signed-off-by: Zhu Yanhai <gaoyang.zyh@taobao.com>
+
+---
+Index: linux-2.6.32-220.17.1.el5/fs/aio.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/fs/aio.c	2012-05-17 02:19:55.400348284 +0800
++++ linux-2.6.32-220.17.1.el5/fs/aio.c	2012-05-17 02:24:09.325607425 +0800
+@@ -56,6 +56,7 @@
+ 
+ static struct kmem_cache	*kiocb_cachep;
+ static struct kmem_cache	*kioctx_cachep;
++static struct kmem_cache	*ba_iocb_cachep;
+ 
+ static struct workqueue_struct *aio_wq;
+ 
+@@ -86,6 +87,7 @@
+ 	kiocb_cachep = KMEM_CACHE(kiocb, SLAB_HWCACHE_ALIGN|SLAB_PANIC);
+ 	kioctx_cachep = KMEM_CACHE(kioctx,SLAB_HWCACHE_ALIGN|SLAB_PANIC);
+ 
++ 	ba_iocb_cachep = KMEM_CACHE(ba_iocb, SLAB_HWCACHE_ALIGN|SLAB_PANIC);
+ 	aio_wq = create_workqueue("aio");
+ 	abe_pool = mempool_create_kmalloc_pool(1, sizeof(struct aio_batch_entry));
+ 	BUG_ON(!abe_pool);
+@@ -1091,19 +1093,79 @@
+ 	del_singleshot_timer_sync(&to->timer);
+ }
+ 
++static int baio_vfs_read(unsigned int fd, char __user *buf,
++		size_t count, loff_t pos)
++{
++	struct file *file;
++	ssize_t ret = -EBADF;
++	int fput_needed;
++
++	file = fget_light(fd, &fput_needed);
++	if (file) {
++		ret = vfs_read(file, buf, count, &pos);
++		fput_light(file, fput_needed);
++	}
++
++	return ret;
++}
++static int baio_read_to_user(struct io_event *ent)
++{
++	struct iocb __user *user_iocb;
++	struct iocb tmp;
++	int ret;
++
++	user_iocb = (struct iocb *)(ent->obj);
++	if (unlikely(copy_from_user(&tmp, user_iocb, sizeof(tmp)))) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	ret = baio_vfs_read(tmp.aio_fildes, (char *)tmp.aio_buf,
++			tmp.aio_nbytes, tmp.aio_offset);
++
++out:
++	return ret;
++}
++
++/*
++ * return 1 if ent->obj points to a buffer aio's iocb.
++ * 0 if it's not.
++ */
++static int check_baio(struct io_event *ent)
++{
++	struct iocb __user *user_iocb;
++	struct iocb tmp;
++	int ret;
++	user_iocb = (struct iocb *)ent->obj;
++	if (unlikely(copy_from_user(&tmp, user_iocb, sizeof(tmp)))) {
++		ret = -EFAULT;
++		goto out;
++	}
++
++	if (tmp.aio_lio_opcode == IOCB_CMD_BAIO_PREAD)
++		ret = 1;
++	else
++		ret = 0;
++out:
++	return ret;
++
++}
+ static int read_events(struct kioctx *ctx,
+ 			long min_nr, long nr,
+ 			struct io_event __user *event,
+ 			struct timespec __user *timeout)
++		
+ {
+ 	long			start_jiffies = jiffies;
+ 	struct task_struct	*tsk = current;
+ 	DECLARE_WAITQUEUE(wait, tsk);
+ 	int			ret;
++	int			ret2;
+ 	int			i = 0;
+ 	struct io_event		ent;
+ 	struct aio_timeout	to;
+ 	int			retry = 0;
++	int			is_baio = 0;
+ 
+ 	/* needed to zero any padding within an entry (there shouldn't be 
+ 	 * any, but C is fun!
+@@ -1118,7 +1180,21 @@
+ 
+ 		dprintk("read event: %Lx %Lx %Lx %Lx\n",
+ 			ent.data, ent.obj, ent.res, ent.res2);
++		is_baio = check_baio(&ent);
++		if (unlikely(is_baio < 0)) {
++			ret = is_baio;
++			break;
++		}
+ 
++		if (is_baio) {
++			ret2 = baio_read_to_user(&ent);
++			if (unlikely(ret2 < 0)) {
++				ret = ret2;
++				dprintk("fail in baio_read_to_user: %d\n", ret);
++				break;
++			}
++			ent.res = ret2;
++		}
+ 		/* Could we split the check in two? */
+ 		ret = -EFAULT;
+ 		if (unlikely(copy_to_user(event, &ent, sizeof(ent)))) {
+@@ -1184,12 +1260,27 @@
+ 			/*ret = aio_read_evt(ctx, &ent);*/
+ 		} while (1) ;
+ 
++
+ 		set_task_state(tsk, TASK_RUNNING);
+ 		remove_wait_queue(&ctx->wait, &wait);
+ 
+ 		if (unlikely(ret <= 0))
+ 			break;
+ 
++		is_baio = check_baio(&ent);
++		if (unlikely(is_baio < 0)) {
++			ret = is_baio;
++			break;
++		}
++		if (is_baio) {
++			ret2 = baio_read_to_user(&ent);
++			if (unlikely(ret2 < 0)) {
++				ret = ret2;
++				dprintk("fail in baio_read_to_user: %d\n", ret);
++				break;
++			}
++			ent.res = ret2;
++		}
+ 		ret = -EFAULT;
+ 		if (unlikely(copy_to_user(event, &ent, sizeof(ent)))) {
+ 			dprintk("aio: lost an event due to EFAULT.\n");
+@@ -1301,6 +1392,40 @@
+ 	return -EINVAL;
+ }
+ 
++
++void baio_complete(struct ba_iocb *baiocb)
++{
++	ssize_t ret = 0;
++	if (baiocb->io_error)
++		ret = baiocb->io_error;
++	if (ret == 0)
++		ret = baiocb->result;
++	dprintk("baio_complete: io_error: %d, result: %d\n",
++			baiocb->io_error, baiocb->result);
++
++	aio_complete(baiocb->iocb, ret, 0);
++
++}
++
++void baiocb_put(struct ba_iocb *baiocb)
++{
++	BUG_ON(!baiocb);
++	dprintk("baiocb_put: ref: %d\n", atomic_read(&baiocb->ref));
++	if (atomic_dec_and_test(&baiocb->ref)) {
++		baio_complete(baiocb);
++		kmem_cache_free(ba_iocb_cachep, baiocb);
++	}
++}
++EXPORT_SYMBOL(baiocb_put);
++
++void baiocb_get(struct ba_iocb *baiocb)
++{
++	BUG_ON(!baiocb);
++	atomic_add(1, &baiocb->ref);
++	pr_debug("baiocb_add: ref: %d\n", atomic_read(&baiocb->ref));
++}
++EXPORT_SYMBOL(baiocb_get);
++
+ static void aio_advance_iovec(struct kiocb *iocb, ssize_t ret)
+ {
+ 	struct iovec *iov = &iocb->ki_iovec[iocb->ki_cur_seg];
+@@ -1324,6 +1449,183 @@
+ 	BUG_ON(ret > 0 && iocb->ki_left == 0);
+ }
+ 
++static void init_baiocb(struct ba_iocb *baiocb, struct kiocb *iocb)
++{
++	atomic_set(&baiocb->ref, 1);
++	baiocb->iocb = iocb;
++	baiocb->io_error = 0;
++	baiocb->result = 0;
++
++}
++
++
++
++#define list_to_page(head) (list_entry((head)->prev, struct page, lru))
++/*
++ * readpages/readpage won't return anything to tell us if they failed.
++ * Although some page maybe set error in the under layer, e.g. after
++ * get_block failed in block_read_full_page() path. We can't simply say
++ * it failed by PageError and drop the ref, otherwise we may race with
++ * the bio complete path, who may also SetPageError.
++ */
++static void read_pages(struct address_space *mapping, struct file *filp,
++		struct list_head *pages, unsigned nr_pages)
++{
++	unsigned page_idx;
++
++
++	if (mapping->a_ops->readpages) {
++		mapping->a_ops->readpages(filp, mapping, pages, nr_pages);
++		goto out;
++	}
++
++	for (page_idx = 0; page_idx < nr_pages; page_idx++) {
++		struct page *page = list_to_page(pages);
++		list_del(&page->lru);
++		if (!add_to_page_cache_lru(page, mapping,
++					page->index, GFP_KERNEL)) {
++			/* This page will go for IO */
++			baiocb_get(current->current_baiocb);
++			mapping->a_ops->readpage(filp, page);
++		}
++		page_cache_release(page);
++	}
++
++out:
++	return;
++}
++/*
++ * Return value is in desc->error, return the submitted bytes
++ * to read on success,
++ * In fact the exact value doesn't matter because it will be
++ * ignored in upper level aio_run_iocb() in the async path,
++ * and our code won't be envolved in the sync path
++ * anyway.
++ */
++void do_baio_read(struct file *file, struct kiocb *iocb, loff_t *ppos,
++		read_descriptor_t *desc)
++{
++	loff_t first_page_read_size;
++	size_t count = desc->count;
++	struct ba_iocb *baiocb;
++
++	unsigned long nr_pages_to_read, page_idx;
++	struct address_space *mapping;
++	struct inode *inode;
++	pgoff_t start, end, end_index;
++	loff_t isize;
++	LIST_HEAD(page_pool);
++	struct page *page;
++	int nr_io_pages = 0;
++	
++
++	start = *ppos >> PAGE_CACHE_SHIFT;
++	end = (*ppos + count - 1) >> PAGE_CACHE_SHIFT;
++	nr_pages_to_read = end - start + 1;
++	desc->error = 0;
++
++	first_page_read_size = PAGE_CACHE_SIZE - (*ppos & ~PAGE_CACHE_MASK);
++
++	mapping = file->f_mapping;
++	if (unlikely(!mapping->a_ops->readpage)) {
++		desc->error = -EINVAL;
++		return;
++	}
++
++	baiocb = kmem_cache_alloc(ba_iocb_cachep, GFP_KERNEL);
++	if (unlikely(!baiocb)) {
++		desc->error = -ENOMEM;
++		return;
++	}
++	 /* allocate ba_iocb with one ref. */
++	init_baiocb(baiocb, iocb);
++	current->current_baiocb = baiocb;
++
++	inode = mapping->host;
++	isize = i_size_read(inode);
++	end_index = ((isize - 1) >> PAGE_CACHE_SHIFT);
++
++	for (page_idx = 0; page_idx < nr_pages_to_read; page_idx++) {
++		pgoff_t page_offset = start + page_idx;
++		unsigned long nr;
++
++		if (page_offset > end_index)
++			break;
++
++		nr = PAGE_CACHE_SIZE;
++		if (page_idx == 0)
++			nr = first_page_read_size;
++		if (count < nr)
++			nr = count;
++		count -= nr;
++
++		rcu_read_lock();
++		page = radix_tree_lookup(&mapping->page_tree, page_offset);
++		rcu_read_unlock();
++
++		pr_debug("To read %ld bytes\n", nr);
++		if (page)
++			continue;
++		
++		page = page_cache_alloc_cold(mapping);
++		if (!page) {
++			desc->error = -ENOMEM;
++			goto out;
++		}
++
++		page->index = page_offset;
++
++		BUG_ON(!page);
++		SetPageBaio(page);
++		pr_debug("To readpage() %ld\n", page_idx);
++		list_add(&page->lru, &page_pool);
++		nr_io_pages++;
++
++	}
++	if (nr_io_pages)
++		read_pages(mapping, file, &page_pool, nr_io_pages);
++	put_pages_list(&page_pool);
++out:
++	pr_debug("To the finial baiocb_put()\n");
++	baiocb_put(baiocb);
++	current->current_baiocb = NULL;
++	return;
++
++}
++
++/*
++ * return -EIOCBQUEUED on success. The exact number of bytes are
++ * ignored by the upper level caller. At least we don't have to
++ * make it very precise at ths moment.
++ */
++ssize_t
++baio_read(struct kiocb *iocb, const struct iovec *iov,
++		unsigned long nr_segs, loff_t pos)
++{
++	int seg = 0;
++	ssize_t written = 0;
++	loff_t *ppos;
++
++	BUG_ON(!iocb);
++	ppos = &iocb->ki_pos;
++	for (seg = 0; seg < nr_segs; seg++) {
++		read_descriptor_t desc;
++		desc.written = 0;
++		desc.arg.buf = iov[seg].iov_base;
++		desc.count = iov[seg].iov_len;
++		if (desc.count == 0)
++			continue;
++		desc.error = 0;
++		do_baio_read(iocb->ki_filp, iocb, ppos, &desc);
++		written += desc.written;
++
++		if (desc.error) {
++			written = written ? : desc.error;
++			break;
++		}
++	}
++	return (written < 0) ? written : -EIOCBQUEUED;
++}
+ static ssize_t aio_rw_vect_retry(struct kiocb *iocb)
+ {
+ 	struct file *file = iocb->ki_filp;
+@@ -1338,6 +1640,9 @@
+ 		(iocb->ki_opcode == IOCB_CMD_PREAD)) {
+ 		rw_op = file->f_op->aio_read;
+ 		opcode = IOCB_CMD_PREADV;
++	} else if (iocb->ki_opcode == IOCB_CMD_BAIO_PREAD) {
++		rw_op = baio_read;
++		opcode = IOCB_CMD_BAIO_PREAD;
+ 	} else {
+ 		rw_op = file->f_op->aio_write;
+ 		opcode = IOCB_CMD_PWRITEV;
+@@ -1446,6 +1751,7 @@
+ 	ssize_t ret = 0;
+ 
+ 	switch (kiocb->ki_opcode) {
++	case IOCB_CMD_BAIO_PREAD:
+ 	case IOCB_CMD_PREAD:
+ 		ret = -EBADF;
+ 		if (unlikely(!(file->f_mode & FMODE_READ)))
+@@ -1874,6 +2180,7 @@
+ 		put_ioctx(ioctx);
+ 	}
+ 
+-	asmlinkage_protect(5, ret, ctx_id, min_nr, nr, events, timeout);
++	asmlinkage_protect(5, ret, ctx_id, min_nr, nr,
++		events, timeout);
+ 	return ret;
+ }
+Index: linux-2.6.32-220.17.1.el5/fs/buffer.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/fs/buffer.c	2012-05-17 02:19:55.392348245 +0800
++++ linux-2.6.32-220.17.1.el5/fs/buffer.c	2012-05-17 02:24:09.325607425 +0800
+@@ -51,6 +51,7 @@
+ {
+ 	bh->b_end_io = handler;
+ 	bh->b_private = private;
++	bh->b_private2 = NULL;
+ }
+ EXPORT_SYMBOL(init_buffer);
+ 
+@@ -312,7 +313,7 @@
+ 	struct buffer_head *tmp;
+ 	struct page *page;
+ 	int page_uptodate = 1;
+-
++	struct ba_iocb *baiocb;
+ 	BUG_ON(!buffer_async_read(bh));
+ 
+ 	page = bh->b_page;
+@@ -354,6 +355,18 @@
+ 	 */
+ 	if (page_uptodate && !PageError(page))
+ 		SetPageUptodate(page);
++
++	baiocb = (struct ba_iocb *)bh->b_private2;
++	BUG_ON(baiocb && !PageBaio(page));
++	BUG_ON(!baiocb && PageBaio(page));
++
++	if (baiocb && PageBaio(page)) {
++		ClearPageBaio(page);
++		if (!page_uptodate || PageError(page))
++			baiocb->io_error = -EIO;
++		baiocb->result += PAGE_SIZE;
++		baiocb_put(baiocb);
++	}
+ 	unlock_page(page);
+ 	return;
+ 
+@@ -2232,6 +2245,8 @@
+ 		 */
+ 		if (!PageError(page))
+ 			SetPageUptodate(page);
++		if (PageBaio(page))
++			baiocb_put(current->current_baiocb);
+ 		unlock_page(page);
+ 		return 0;
+ 	}
+@@ -3039,7 +3054,11 @@
+ 	if (unlikely (test_bit(BIO_QUIET,&bio->bi_flags)))
+ 		set_bit(BH_Quiet, &bh->b_state);
+ 
++	if (bio_flagged(bio, BIO_BAIO))
++		bh->b_private2 = (void *)bio->bi_private2;
++
+ 	bh->b_end_io(bh, test_bit(BIO_UPTODATE, &bio->bi_flags));
++	/* clear_bit(BIO_BAIO, &bio->bi_flags); */
+ 	bio_put(bio);
+ }
+ 
+@@ -3086,6 +3105,11 @@
+ 	bio->bi_end_io = end_bio_bh_io_sync;
+ 	bio->bi_private = bh;
+ 
++	if (PageBaio(bh->b_page)) {
++		set_bit(BIO_BAIO, &bio->bi_flags);
++		bio->bi_private2 = (void *)current->current_baiocb;
++	}
++
+ 	bio_get(bio);
+ 	submit_bio(rw, bio);
+ 
+Index: linux-2.6.32-220.17.1.el5/fs/mpage.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/fs/mpage.c	2012-05-17 02:19:55.384348206 +0800
++++ linux-2.6.32-220.17.1.el5/fs/mpage.c	2012-05-17 02:24:09.325607425 +0800
+@@ -56,6 +56,16 @@
+ 			ClearPageUptodate(page);
+ 			SetPageError(page);
+ 		}
++		if (bio_flagged(bio, BIO_BAIO)) {
++			struct ba_iocb *baiocb =
++				(struct ba_iocb *)bio->bi_private2;
++		       	BUG_ON(!PageBaio(page));
++			ClearPageBaio(page);
++			if (!uptodate)
++				baiocb->io_error = -EIO;
++			baiocb->result += bvec->bv_len;
++			baiocb_put(baiocb);
++		}
+ 		unlock_page(page);
+ 	} while (bvec >= bio->bi_io_vec);
+ 	bio_put(bio);
+@@ -179,11 +189,12 @@
+ 	unsigned page_block;
+ 	unsigned first_hole = blocks_per_page;
+ 	struct block_device *bdev = NULL;
+-	int length;
++	int length, bio_length;
+ 	int fully_mapped = 1;
+ 	unsigned nblocks;
+ 	unsigned relative_block;
+ 
++
+ 	if (page_has_buffers(page))
+ 		goto confused;
+ 
+@@ -277,6 +288,8 @@
+ 		zero_user_segment(page, first_hole << blkbits, PAGE_CACHE_SIZE);
+ 		if (first_hole == 0) {
+ 			SetPageUptodate(page);
++			if (PageBaio(page))
++				baiocb_put(current->current_baiocb);
+ 			unlock_page(page);
+ 			goto out;
+ 		}
+@@ -300,7 +313,13 @@
+ 	}
+ 
+ 	length = first_hole << blkbits;
+-	if (bio_add_page(bio, page, length, 0) < length) {
++	bio_length = bio_add_page(bio, page, length, 0);
++	if (PageBaio(page)) {
++		bio->bi_private2 = (void *)current->current_baiocb;
++		set_bit(BIO_BAIO, &bio->bi_flags);
++	}
++
++	if (bio_length < length) {
+ 		bio = mpage_bio_submit(READ, bio);
+ 		goto alloc_new;
+ 	}
+@@ -320,8 +339,11 @@
+ 		bio = mpage_bio_submit(READ, bio);
+ 	if (!PageUptodate(page))
+ 	        block_read_full_page(page, get_block);
+-	else
++	else {
++		if (PageBaio(page))
++			baiocb_put(current->current_baiocb);
+ 		unlock_page(page);
++	}
+ 	goto out;
+ }
+ 
+@@ -387,6 +409,8 @@
+ 		list_del(&page->lru);
+ 		if (!add_to_page_cache_lru(page, mapping,
+ 					page->index, GFP_KERNEL)) {
++			if (PageBaio(page))
++				baiocb_get(current->current_baiocb);
+ 			bio = do_mpage_readpage(bio, page,
+ 					nr_pages - page_idx,
+ 					&last_block_in_bio, &map_bh,
+Index: linux-2.6.32-220.17.1.el5/include/linux/aio_abi.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/aio_abi.h	2012-05-17 02:19:55.356348067 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/aio_abi.h	2012-05-17 02:24:09.325607425 +0800
+@@ -44,6 +44,7 @@
+ 	IOCB_CMD_NOOP = 6,
+ 	IOCB_CMD_PREADV = 7,
+ 	IOCB_CMD_PWRITEV = 8,
++	IOCB_CMD_BAIO_PREAD = 9,
+ };
+ 
+ /*
+Index: linux-2.6.32-220.17.1.el5/include/linux/aio.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/aio.h	2012-05-17 02:19:55.336347966 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/aio.h	2012-05-17 02:24:09.325607425 +0800
+@@ -204,6 +204,13 @@
+ 	struct rcu_head		rcu_head;
+ };
+ 
++struct ba_iocb {
++	atomic_t		ref;
++	struct kiocb 		*iocb;
++	int			io_error;
++	ssize_t			result;
++};
++
+ /* prototypes */
+ extern unsigned aio_max_size;
+ 
+@@ -216,6 +223,8 @@
+ extern void exit_aio(struct mm_struct *mm);
+ extern long do_io_submit(aio_context_t ctx_id, long nr,
+ 			 struct iocb __user *__user *iocbpp, bool compat);
++extern void baiocb_put(struct ba_iocb *baiocb);
++extern void baiocb_get(struct ba_iocb *baiocb);
+ #else
+ static inline ssize_t wait_on_sync_kiocb(struct kiocb *iocb) { return 0; }
+ static inline int aio_put_req(struct kiocb *iocb) { return 0; }
+@@ -226,6 +235,8 @@
+ static inline long do_io_submit(aio_context_t ctx_id, long nr,
+ 				struct iocb __user * __user *iocbpp,
+ 				bool compat) { return 0; }
++static void baiocb_put(struct ba_iocb *baiocb) { }
++static void baiocb_get(struct ba_iocb *baiocb) { }
+ #endif /* CONFIG_AIO */
+ 
+ #define io_wait_to_kiocb(wait) container_of(wait, struct kiocb, ki_wait)
+Index: linux-2.6.32-220.17.1.el5/include/linux/bio.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/bio.h	2012-05-17 02:19:55.344348005 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/bio.h	2012-05-17 02:24:09.325607425 +0800
+@@ -99,6 +99,8 @@
+ 	bio_end_io_t		*bi_end_io;
+ 
+ 	void			*bi_private;
++    void            *bi_private2;
++
+ #if defined(CONFIG_BLK_DEV_INTEGRITY)
+ 	struct bio_integrity_payload *bi_integrity;  /* data integrity */
+ #endif
+Index: linux-2.6.32-220.17.1.el5/include/linux/blk_types.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/blk_types.h	2012-05-17 02:19:55.380348182 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/blk_types.h	2012-05-17 02:24:09.325607425 +0800
+@@ -25,6 +25,7 @@
+ #define BIO_FS_INTEGRITY 10	/* fs owns integrity data, not block layer */
+ #define BIO_QUIET	11	/* Make BIO Quiet */
+ #define BIO_MAPPED_INTEGRITY 12	/* integrity metadata has been remapped */
++#define BIO_BAIO	13	/* a buffered aio request */
+ #define bio_flagged(bio, flag)	((bio)->bi_flags & (1 << (flag)))
+ 
+ /*
+Index: linux-2.6.32-220.17.1.el5/include/linux/buffer_head.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/buffer_head.h	2012-05-17 02:19:55.364348102 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/buffer_head.h	2012-05-17 02:24:09.325607425 +0800
+@@ -37,6 +37,7 @@
+ 	BH_Unwritten,	/* Buffer is allocated on disk but not written */
+ 	BH_Quiet,	/* Buffer Error Prinks to be quiet */
+ 
++    BH_Baio,
+ 	BH_PrivateStart,/* not a state bit, but the first bit available
+ 			 * for private allocation by other entities
+ 			 */
+@@ -74,6 +75,7 @@
+ 	struct address_space *b_assoc_map;	/* mapping this buffer is
+ 						   associated with */
+ 	atomic_t b_count;		/* users using this buffer_head */
++	void *b_private2;
+ };
+ 
+ /*
+@@ -128,6 +130,7 @@
+ BUFFER_FNS(Ordered, ordered)
+ BUFFER_FNS(Eopnotsupp, eopnotsupp)
+ BUFFER_FNS(Unwritten, unwritten)
++BUFFER_FNS(Baio, baio)
+ 
+ #define bh_offset(bh)		((unsigned long)(bh)->b_data & ~PAGE_MASK)
+ #define touch_buffer(bh)	mark_page_accessed(bh->b_page)
+Index: linux-2.6.32-220.17.1.el5/include/linux/page-flags.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/page-flags.h	2012-05-17 02:19:55.348348020 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/page-flags.h	2012-05-17 02:24:09.325607425 +0800
+@@ -111,6 +111,7 @@
+ #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+ 	PG_compound_lock,
+ #endif
++	PG_baio,
+ 	__NR_PAGEFLAGS,
+ 
+ 	/* Filesystems */
+@@ -216,6 +217,7 @@
+ PAGEFLAG(SwapBacked, swapbacked) __CLEARPAGEFLAG(SwapBacked, swapbacked)
+ 
+ __PAGEFLAG(SlobFree, slob_free)
++PAGEFLAG(Baio, baio)
+ 
+ __PAGEFLAG(SlubFrozen, slub_frozen)
+ __PAGEFLAG(SlubDebug, slub_debug)
+Index: linux-2.6.32-220.17.1.el5/include/linux/sched.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/sched.h	2012-05-17 02:24:08.349602595 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/sched.h	2012-05-17 02:24:09.329607447 +0800
+@@ -1639,6 +1639,7 @@
+ #ifndef __GENKSYMS__
+ 	struct perf_event_context *perf_event_ctxp[perf_nr_task_contexts];
+ #endif
++	struct ba_iocb *current_baiocb;
+ };
+ 
+ /* Future-safe accessor for struct task_struct's cpus_allowed. */

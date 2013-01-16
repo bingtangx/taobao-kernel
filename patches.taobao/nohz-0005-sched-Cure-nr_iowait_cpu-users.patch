@@ -1,0 +1,132 @@
+From: Peter Zijlstra <peterz@infradead.org>
+Date: Thu Jul 1 09:07:17 2010 +0200
+Subject: [PATCH 5/7]sched: Cure nr_iowait_cpu() users
+Patch-mainline: 2.6.35
+Reference: BF#152721
+
+(commit 8c215bd3890c347dfb6a2db4779755f8b9c298a9)
+Commit 0224cf4c5e (sched: Intoduce get_cpu_iowait_time_us())
+broke things by not making sure preemption was indeed disabled
+by the callers of nr_iowait_cpu() which took the iowait value of
+the current cpu.
+
+This resulted in a heap of preempt warnings. Cure this by making
+nr_iowait_cpu() take a cpu number and fix up the callers to pass
+in the right number.
+
+Signed-off-by: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Cc: Arjan van de Ven <arjan@infradead.org>
+Cc: Sergey Senozhatsky <sergey.senozhatsky@gmail.com>
+Cc: Rafael J. Wysocki <rjw@sisk.pl>
+Cc: Maxim Levitsky <maximlevitsky@gmail.com>
+Cc: Len Brown <len.brown@intel.com>
+Cc: Pavel Machek <pavel@ucw.cz>
+Cc: Jiri Slaby <jslaby@suse.cz>
+Cc: linux-pm@lists.linux-foundation.org
+LKML-Reference: <1277968037.1868.120.camel@laptop>
+Signed-off-by: Ingo Molnar <mingo@elte.hu>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.17.1.el5/drivers/cpuidle/governors/menu.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/drivers/cpuidle/governors/menu.c	2012-05-17 02:25:41.494064464 +0800
++++ linux-2.6.32-220.17.1.el5/drivers/cpuidle/governors/menu.c	2012-05-17 02:25:52.574119406 +0800
+@@ -143,7 +143,7 @@
+ 	 * This allows us to calculate
+ 	 * E(duration)|iowait
+ 	 */
+-	if (nr_iowait_cpu())
++	if (nr_iowait_cpu(smp_processor_id()))
+ 		bucket = BUCKETS/2;
+ 
+ 	if (duration < 10)
+@@ -175,7 +175,7 @@
+ 	mult += 2 * get_loadavg();
+ 
+ 	/* for IO wait tasks (per cpu!) we add 5x each */
+-	mult += 10 * nr_iowait_cpu();
++	mult += 10 * nr_iowait_cpu(smp_processor_id());
+ 
+ 	return mult;
+ }
+Index: linux-2.6.32-220.17.1.el5/include/linux/sched.h
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/include/linux/sched.h	2012-05-17 02:25:52.466118872 +0800
++++ linux-2.6.32-220.17.1.el5/include/linux/sched.h	2012-05-17 02:25:52.574119406 +0800
+@@ -142,7 +142,7 @@
+ extern unsigned long nr_running(void);
+ extern unsigned long nr_uninterruptible(void);
+ extern unsigned long nr_iowait(void);
+-extern unsigned long nr_iowait_cpu(void);
++extern unsigned long nr_iowait_cpu(int cpu);
+ extern unsigned long this_cpu_load(void);
+ 
+ 
+Index: linux-2.6.32-220.17.1.el5/kernel/sched.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/kernel/sched.c	2012-05-17 02:25:52.466118872 +0800
++++ linux-2.6.32-220.17.1.el5/kernel/sched.c	2012-05-17 02:25:52.578119427 +0800
+@@ -3119,9 +3119,9 @@
+ 	return sum;
+ }
+ 
+-unsigned long nr_iowait_cpu(void)
++unsigned long nr_iowait_cpu(int cpu)
+ {
+-	struct rq *this = this_rq();
++	struct rq *this = cpu_rq(cpu);
+ 	return atomic_read(&this->nr_iowait);
+ }
+ 
+Index: linux-2.6.32-220.17.1.el5/kernel/time/tick-sched.c
+===================================================================
+--- linux-2.6.32-220.17.1.el5.orig/kernel/time/tick-sched.c	2012-05-17 02:25:52.554119311 +0800
++++ linux-2.6.32-220.17.1.el5/kernel/time/tick-sched.c	2012-05-17 02:25:52.578119427 +0800
+@@ -154,13 +154,13 @@
+  * Updates the per cpu time idle statistics counters
+  */
+ static void
+-update_ts_time_stats(struct tick_sched *ts, ktime_t now, u64 *last_update_time)
++update_ts_time_stats(int cpu, struct tick_sched *ts, ktime_t now, u64 *last_update_time)
+ {
+ 	ktime_t delta;
+ 
+ 	if (ts->idle_active) {
+ 		delta = ktime_sub(now, ts->idle_entrytime);
+-		if (nr_iowait_cpu() > 0)
++		if (nr_iowait_cpu(cpu) > 0)
+ 			ts->iowait_sleeptime = ktime_add(ts->iowait_sleeptime, delta);
+ 		else
+ 			ts->idle_sleeptime = ktime_add(ts->idle_sleeptime, delta);
+@@ -175,19 +175,19 @@
+ {
+ 	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+ 
+-	update_ts_time_stats(ts, now, NULL);
++	update_ts_time_stats(cpu, ts, now, NULL);
+ 	ts->idle_active = 0;
+ 
+ 	sched_clock_idle_wakeup_event(0);
+ }
+ 
+-static ktime_t tick_nohz_start_idle(struct tick_sched *ts)
++static ktime_t tick_nohz_start_idle(int cpu, struct tick_sched *ts)
+ {
+ 	ktime_t now;
+ 
+ 	now = ktime_get();
+ 
+-	update_ts_time_stats(ts, now, NULL);
++	update_ts_time_stats(cpu, ts, now, NULL);
+ 
+ 	ts->idle_entrytime = now;
+ 	ts->idle_active = 1;
+@@ -309,7 +309,7 @@
+ 	 */
+ 	ts->inidle = 1;
+ 
+-	now = tick_nohz_start_idle(ts);
++	now = tick_nohz_start_idle(cpu, ts);
+ 
+ 	/*
+ 	 * If this cpu is offline and it is the one which updates

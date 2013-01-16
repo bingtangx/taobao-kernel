@@ -1,0 +1,27 @@
+From: Coly Li <bosong.ly@taobao.com>
+Subject: kvm: set KSM_RUN_STOP by default
+Date: Thu Mar  1 11:43:46 CST 2012
+Patch-mainline: in-house
+
+KSM spends quite a lot CPU time to scan indentified pages, this
+behavior has negtive performance impect for online service
+RT (response time). For most of server configuarion, we have
+much enough memory to gain better performance. Therefore set
+ksmd to KSM_RUN_STOP by default for better RT.
+
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+Signed-off-by: Liu Yuan <tailai.ly@taobao.com>
+---
+Index: linux-2.6.32-220.4.2.el5/mm/ksm.c
+===================================================================
+--- linux-2.6.32-220.4.2.el5.orig/mm/ksm.c	2012-03-01 11:15:36.148283052 +0800
++++ linux-2.6.32-220.4.2.el5/mm/ksm.c	2012-03-01 11:27:02.571686841 +0800
+@@ -2031,7 +2031,7 @@
+ 		goto out_free2;
+ 	}
+ #else
+-	ksm_run = KSM_RUN_MERGE;	/* no way for user to start it */
++	ksm_run = KSM_RUN_STOP;	/* no way for user to start it */
+ 
+ #endif /* CONFIG_SYSFS */
+ 

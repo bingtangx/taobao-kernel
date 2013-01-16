@@ -1,0 +1,148 @@
+From bab08ab9646288f1b0b72a7aaeecdff94bd62c18 Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Fri, 9 Sep 2011 18:36:51 -0400
+Subject: [PATCH 03/26] ext4: enforce bigalloc restrictions (e.g., no online resizing, etc.)
+Patch-mainline: 3.2
+
+At least initially if the bigalloc feature is enabled, we will not
+support non-extent mapped inodes, online resizing, online defrag, or
+the FITRIM ioctl.  This simplifies the initial implementation.
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.2.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/fs/ext4/inode.c	2012-02-24 11:56:25.345760437 +0800
++++ linux-2.6.32-220.2.1.el5/fs/ext4/inode.c	2012-02-24 11:56:33.565801185 +0800
+@@ -1006,6 +1006,13 @@
+ 	/*
+ 	 * Okay, we need to do block allocation.
+ 	*/
++	if (EXT4_HAS_RO_COMPAT_FEATURE(inode->i_sb,
++				       EXT4_FEATURE_RO_COMPAT_BIGALLOC)) {
++		EXT4_ERROR_INODE(inode, "Can't allocate blocks for "
++				 "non-extent mapped inodes with bigalloc");
++		return -ENOSPC;
++	}
++
+ 	goal = ext4_find_goal(inode, iblock, partial);
+ 
+ 	/* the number of blocks need to allocate for [d,t]indirect blocks */
+Index: linux-2.6.32-220.2.1.el5/fs/ext4/ioctl.c
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/fs/ext4/ioctl.c	2012-02-24 11:51:38.948340257 +0800
++++ linux-2.6.32-220.2.1.el5/fs/ext4/ioctl.c	2012-02-24 11:56:33.565801185 +0800
+@@ -21,6 +21,7 @@
+ long ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+ {
+ 	struct inode *inode = filp->f_dentry->d_inode;
++	struct super_block *sb = inode->i_sb;
+ 	struct ext4_inode_info *ei = EXT4_I(inode);
+ 	unsigned int flags;
+ 
+@@ -183,7 +184,6 @@
+ 		 * Returns 1 if it slept, else zero.
+ 		 */
+ 		{
+-			struct super_block *sb = inode->i_sb;
+ 			DECLARE_WAITQUEUE(wait, current);
+ 			int ret = 0;
+ 
+@@ -199,7 +199,6 @@
+ #endif
+ 	case EXT4_IOC_GROUP_EXTEND: {
+ 		ext4_fsblk_t n_blocks_count;
+-		struct super_block *sb = inode->i_sb;
+ 		int err, err2=0;
+ 
+ 		if (!capable(CAP_SYS_RESOURCE))
+@@ -208,6 +207,13 @@
+ 		if (get_user(n_blocks_count, (__u32 __user *)arg))
+ 			return -EFAULT;
+ 
++		if (EXT4_HAS_RO_COMPAT_FEATURE(sb,
++			       EXT4_FEATURE_RO_COMPAT_BIGALLOC)) {
++			ext4_msg(sb, KERN_ERR,
++				 "Online resizing not supported with bigalloc");
++			return -EOPNOTSUPP;
++		}
++
+ 		err = mnt_want_write(filp->f_path.mnt);
+ 		if (err)
+ 			return err;
+@@ -247,6 +253,13 @@
+ 			goto mext_out;
+ 		}
+ 
++		if (EXT4_HAS_RO_COMPAT_FEATURE(sb,
++			       EXT4_FEATURE_RO_COMPAT_BIGALLOC)) {
++			ext4_msg(sb, KERN_ERR,
++				 "Online defrag not supported with bigalloc");
++			return -EOPNOTSUPP;
++		}
++
+ 		err = mnt_want_write(filp->f_path.mnt);
+ 		if (err)
+ 			goto mext_out;
+@@ -268,7 +281,6 @@
+ 
+ 	case EXT4_IOC_GROUP_ADD: {
+ 		struct ext4_new_group_data input;
+-		struct super_block *sb = inode->i_sb;
+ 		int err, err2=0;
+ 
+ 		if (!capable(CAP_SYS_RESOURCE))
+@@ -278,6 +290,13 @@
+ 				sizeof(input)))
+ 			return -EFAULT;
+ 
++		if (EXT4_HAS_RO_COMPAT_FEATURE(sb,
++			       EXT4_FEATURE_RO_COMPAT_BIGALLOC)) {
++			ext4_msg(sb, KERN_ERR,
++				 "Online resizing not supported with bigalloc");
++			return -EOPNOTSUPP;
++		}
++
+ 		err = mnt_want_write(filp->f_path.mnt);
+ 		if (err)
+ 			return err;
+@@ -333,13 +352,19 @@
+ 
+ 	case FITRIM:
+ 	{
+-		struct super_block *sb = inode->i_sb;
+ 		struct fstrim_range range;
+ 		int ret = 0;
+ 
+ 		if (!capable(CAP_SYS_ADMIN))
+ 			return -EPERM;
+ 
++		if (EXT4_HAS_RO_COMPAT_FEATURE(sb,
++			       EXT4_FEATURE_RO_COMPAT_BIGALLOC)) {
++			ext4_msg(sb, KERN_ERR,
++				 "FITRIM not supported with bigalloc");
++			return -EOPNOTSUPP;
++		}
++
+ 		if (copy_from_user(&range, (struct fstrim_range *)arg,
+ 		    sizeof(range)))
+ 			return -EFAULT;
+Index: linux-2.6.32-220.2.1.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/fs/ext4/super.c	2012-02-24 11:56:26.085764043 +0800
++++ linux-2.6.32-220.2.1.el5/fs/ext4/super.c	2012-02-24 11:56:33.565801185 +0800
+@@ -2503,6 +2503,13 @@
+ 			return 0;
+ 		}
+ 	}
++	if (EXT4_HAS_RO_COMPAT_FEATURE(sb, EXT4_FEATURE_RO_COMPAT_BIGALLOC) &&
++	    !EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS)) {
++		ext4_msg(sb, KERN_ERR,
++			 "Can't support bigalloc feature without "
++			 "extents feature\n");
++		return 0;
++	}
+ 	return 1;
+ }
+ 

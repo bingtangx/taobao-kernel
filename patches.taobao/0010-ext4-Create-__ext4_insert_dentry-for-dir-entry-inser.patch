@@ -1,0 +1,188 @@
+From 4b52308e618288ceebf99f21724cbbbe5258e951 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Fri, 18 Nov 2011 16:27:28 +0800
+Subject: [PATCH 10/22] ext4: Create __ext4_insert_dentry for dir entry insertion.
+Patch-mainline: in-house
+
+The old add_dirent_to_buf handles all the work related to the
+work of adding dir entry to a dir block. Now we have inline data,
+so create 2 new function __ext4_find_dest_de and __ext4_insert_dentry
+that do the real work and let add_dirent_to_buf call them.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index ecb8335..6ff0310 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1663,6 +1663,21 @@ extern int ext4_htree_store_dirent(struct file *dir_file, __u32 hash,
+ 				    __u32 minor_hash,
+ 				    struct ext4_dir_entry_2 *dirent);
+ extern void ext4_htree_free_dir_info(struct dir_private_info *p);
++extern int ext4_find_dest_de(struct inode *dir, struct inode *inode,
++			     struct buffer_head *bh,
++			     void *buf, int buf_size,
++			     const char *name, int namelen,
++			     struct ext4_dir_entry_2 **dest_de);
++void ext4_insert_dentry(struct inode *inode,
++			struct ext4_dir_entry_2 *de,
++			int buf_size,
++			const char *name, int namelen);
++static inline void ext4_update_dx_flag(struct inode *inode)
++{
++	if (!EXT4_HAS_COMPAT_FEATURE(inode->i_sb,
++				     EXT4_FEATURE_COMPAT_DIR_INDEX))
++		ext4_clear_inode_flag(inode, EXT4_INODE_INDEX);
++}
+ 
+ /* fsync.c */
+ extern int ext4_sync_file(struct file *, struct dentry *, int);
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index 756fb8a..516bdc3 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -774,13 +774,6 @@ static void dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
+ 	dx_set_count(entries, count + 1);
+ }
+ 
+-static void ext4_update_dx_flag(struct inode *inode)
+-{
+-	if (!EXT4_HAS_COMPAT_FEATURE(inode->i_sb,
+-				     EXT4_FEATURE_COMPAT_DIR_INDEX))
+-		ext4_clear_inode_flag(inode, EXT4_INODE_INDEX);
+-}
+-
+ /*
+  * NOTE! unlike strncmp, ext4_match returns 1 for success, 0 for failure.
+  *
+@@ -1258,6 +1251,66 @@ errout:
+ 	return NULL;
+ }
+ 
++int ext4_find_dest_de(struct inode *dir, struct inode *inode,
++		      struct buffer_head *bh,
++		      void *buf, int buf_size,
++		      const char *name, int namelen,
++		      struct ext4_dir_entry_2 **dest_de)
++{
++	struct ext4_dir_entry_2 *de;
++	unsigned short reclen = EXT4_DIR_REC_LEN(namelen);
++	int nlen, rlen;
++	unsigned int offset = 0;
++	char *top;
++
++	de = (struct ext4_dir_entry_2 *)buf;
++	top = buf + buf_size - reclen;
++	while ((char *) de <= top) {
++		if (ext4_check_dir_entry(__func__, dir, de, bh,
++					 buf, buf_size, offset))
++			return -EIO;
++		if (ext4_match(namelen, name, de))
++			return -EEXIST;
++		nlen = EXT4_DIR_REC_LEN(de->name_len);
++		rlen = ext4_rec_len_from_disk(de->rec_len, buf_size);
++		if ((de->inode ? rlen - nlen : rlen) >= reclen)
++			break;
++		de = (struct ext4_dir_entry_2 *)((char *)de + rlen);
++		offset += rlen;
++	}
++	if ((char *) de > top)
++		return -ENOSPC;
++
++	*dest_de = de;
++	return 0;
++}
++
++void ext4_insert_dentry(struct inode *inode,
++			struct ext4_dir_entry_2 *de,
++			int buf_size,
++			const char *name, int namelen)
++{
++
++	int nlen, rlen;
++
++	nlen = EXT4_DIR_REC_LEN(de->name_len);
++	rlen = ext4_rec_len_from_disk(de->rec_len, buf_size);
++	if (de->inode) {
++		struct ext4_dir_entry_2 *de1 =
++				(struct ext4_dir_entry_2 *)((char *)de + nlen);
++		de1->rec_len = ext4_rec_len_to_disk(rlen - nlen, buf_size);
++		de->rec_len = ext4_rec_len_to_disk(nlen, buf_size);
++		de = de1;
++	}
++	de->file_type = EXT4_FT_UNKNOWN;
++	if (inode) {
++		de->inode = cpu_to_le32(inode->i_ino);
++		ext4_set_de_type(inode->i_sb, de, inode->i_mode);
++	} else
++		de->inode = 0;
++	de->name_len = namelen;
++	memcpy(de->name, name, namelen);
++}
+ /*
+  * Add a new entry into a directory (leaf) block.  If de is non-NULL,
+  * it points to a directory entry which is guaranteed to be large
+@@ -1273,32 +1326,17 @@ static int add_dirent_to_buf(handle_t *handle, struct dentry *dentry,
+ 	struct inode	*dir = dentry->d_parent->d_inode;
+ 	const char	*name = dentry->d_name.name;
+ 	int		namelen = dentry->d_name.len;
+-	unsigned int	offset = 0;
+ 	unsigned int	blocksize = dir->i_sb->s_blocksize;
+ 	unsigned short	reclen;
+-	int		nlen, rlen, err;
+-	char		*top;
++	int		err;
+ 
+ 	reclen = EXT4_DIR_REC_LEN(namelen);
+ 	if (!de) {
+-		de = (struct ext4_dir_entry_2 *)bh->b_data;
+-		top = bh->b_data + blocksize - reclen;
+-		while ((char *) de <= top) {
+-			if (ext4_check_dir_entry("ext4_add_entry", dir, de,
+-						  bh, bh->b_data, bh->b_size,
+-						  offset))
+-				return -EIO;
+-			if (ext4_match(namelen, name, de))
+-				return -EEXIST;
+-			nlen = EXT4_DIR_REC_LEN(de->name_len);
+-			rlen = ext4_rec_len_from_disk(de->rec_len, blocksize);
+-			if ((de->inode? rlen - nlen: rlen) >= reclen)
+-				break;
+-			de = (struct ext4_dir_entry_2 *)((char *)de + rlen);
+-			offset += rlen;
+-		}
+-		if ((char *) de > top)
+-			return -ENOSPC;
++		err = ext4_find_dest_de(dir, inode,
++					bh, bh->b_data, blocksize,
++					name, namelen, &de);
++		if (err)
++			return err;
+ 	}
+ 	BUFFER_TRACE(bh, "get_write_access");
+ 	err = ext4_journal_get_write_access(handle, bh);
+@@ -1308,22 +1346,8 @@ static int add_dirent_to_buf(handle_t *handle, struct dentry *dentry,
+ 	}
+ 
+ 	/* By now the buffer is marked for journaling */
+-	nlen = EXT4_DIR_REC_LEN(de->name_len);
+-	rlen = ext4_rec_len_from_disk(de->rec_len, blocksize);
+-	if (de->inode) {
+-		struct ext4_dir_entry_2 *de1 = (struct ext4_dir_entry_2 *)((char *)de + nlen);
+-		de1->rec_len = ext4_rec_len_to_disk(rlen - nlen, blocksize);
+-		de->rec_len = ext4_rec_len_to_disk(nlen, blocksize);
+-		de = de1;
+-	}
+-	de->file_type = EXT4_FT_UNKNOWN;
+-	if (inode) {
+-		de->inode = cpu_to_le32(inode->i_ino);
+-		ext4_set_de_type(dir->i_sb, de, inode->i_mode);
+-	} else
+-		de->inode = 0;
+-	de->name_len = namelen;
+-	memcpy(de->name, name, namelen);
++	ext4_insert_dentry(inode, de, blocksize, name, namelen);
++
+ 	/*
+ 	 * XXX shouldn't update any times until successful
+ 	 * completion of syscall, but too many callers depend

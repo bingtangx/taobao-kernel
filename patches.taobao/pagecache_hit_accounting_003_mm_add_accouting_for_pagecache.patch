@@ -1,0 +1,152 @@
+From: Liu Yuan <tailai.ly@taobao.com>
+Date: Fri, 4 Mar 2011 02:59:19 +0800
+Subject: [PATCH 3/4] mm: Add hit/miss accounting for Page Cache
+Patch-mainline: in-house
+References: 
+
+Hit/Miss accountings are request-centric: that is, single request
+would either cause one hit or one miss to be accounted for the very
+first time that kernel query the page cache. In some rare error
+conditions, kernel would re-query the page cache, but we donnot
+account for it and ignore it for simplicity.
+
+Signed-off-by: Liu Yuan <tailai.ly@taobao.com>
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+Acked-by: 
+
+---
+ fs/splice.c  |    6 ++++++
+ mm/filemap.c |   29 +++++++++++++++++++++++++----
+ 1 files changed, 25 insertions(+), 4 deletions(-)
+
+Index: linux-2.6.32-220.7.1.el5/fs/splice.c
+===================================================================
+--- linux-2.6.32-220.7.1.el5.orig/fs/splice.c	2012-03-09 12:12:18.462345690 +0800
++++ linux-2.6.32-220.7.1.el5/fs/splice.c	2012-03-09 12:12:57.682540191 +0800
+@@ -30,6 +30,8 @@
+ #include <linux/syscalls.h>
+ #include <linux/uio.h>
+ #include <linux/security.h>
++#include <linux/genhd.h>
++#include <trace/events/mm.h>
+ 
+ /*
+  * Attempt to steal a page from a pipe buffer. This should perhaps go into
+@@ -296,6 +298,11 @@
+ 	spd.nr_pages = find_get_pages_contig(mapping, index, nr_pages, pages);
+ 	index += spd.nr_pages;
+ 
++	if (likely(spd.nr_pages))
++		trace_page_cache_acct_hits(mapping->host->i_sb, READ, spd.nr_pages);
++
++	if (nr_pages - spd.nr_pages)
++		trace_page_cache_acct_misses(mapping->host->i_sb, READ, nr_pages - spd.nr_pages);
+ 	/*
+ 	 * If find_get_pages_contig() returned fewer pages than we needed,
+ 	 * readahead/allocate the rest and fill in the holes.
+Index: linux-2.6.32-220.7.1.el5/mm/filemap.c
+===================================================================
+--- linux-2.6.32-220.7.1.el5.orig/mm/filemap.c	2012-03-09 12:12:18.454345649 +0800
++++ linux-2.6.32-220.7.1.el5/mm/filemap.c	2012-03-09 12:12:57.682540191 +0800
+@@ -35,6 +35,7 @@
+ #include <linux/memcontrol.h>
+ #include <linux/mm_inline.h> /* for page_is_file_cache() */
+ #include <trace/events/kmem.h>
++#include <trace/events/mm.h>
+ #include "internal.h"
+ 
+ /*
+@@ -1036,10 +1037,16 @@
+ 		pgoff_t end_index;
+ 		loff_t isize;
+ 		unsigned long nr, ret;
++		int retry_find = 0;
+ 
+ 		cond_resched();
+ find_page:
+ 		page = find_get_page(mapping, index);
++		if (likely(!retry_find) && page && PageUptodate(page))
++			trace_page_cache_acct_hit(inode->i_sb, READ);
++		else
++			trace_page_cache_acct_miss(inode->i_sb, READ);
++
+ 		if (!page) {
+ 			page_cache_sync_readahead(mapping,
+ 					ra, filp,
+@@ -1164,6 +1171,7 @@
+ 		if (unlikely(error)) {
+ 			if (error == AOP_TRUNCATED_PAGE) {
+ 				page_cache_release(page);
++				retry_find = 1;
+ 				goto find_page;
+ 			}
+ 			goto readpage_error;
+@@ -1180,6 +1188,7 @@
+ 					 */
+ 					unlock_page(page);
+ 					page_cache_release(page);
++					retry_find = 1;
+ 					goto find_page;
+ 				}
+ 				unlock_page(page);
+@@ -1212,8 +1221,10 @@
+ 						index, GFP_KERNEL);
+ 		if (error) {
+ 			page_cache_release(page);
+-			if (error == -EEXIST)
++			if (error == -EEXIST) {
++				retry_find = 1;
+ 				goto find_page;
++			}
+ 			desc->error = error;
+ 			goto out;
+ 		}
+@@ -1569,6 +1580,7 @@
+ 	pgoff_t offset = vmf->pgoff;
+ 	struct page *page;
+ 	pgoff_t size;
++	int rw = !!(vmf->flags & FAULT_FLAG_WRITE);
+ 	int ret = 0;
+ 
+ 	size = (i_size_read(inode) + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+@@ -1579,6 +1591,11 @@
+ 	 * Do we have something in the page cache already?
+ 	 */
+ 	page = find_get_page(mapping, offset);
++	if (page && page->mapping && PageUptodate(page))
++		trace_page_cache_acct_hit(inode->i_sb, rw);
++	else
++		trace_page_cache_acct_miss(inode->i_sb, rw);
++
+ 	if (likely(page)) {
+ 		/*
+ 		 * We found the page, so try async readahead before
+@@ -2256,20 +2273,25 @@
+ 		gfp_notmask = __GFP_FS;
+ repeat:
+ 	page = find_lock_page(mapping, index);
+-	if (likely(page))
++	if (likely(page)) {
++		trace_page_cache_acct_hit(mapping->host->i_sb, WRITE);
+ 		return page;
++	}
+ 
+ 	page = __page_cache_alloc(mapping_gfp_mask(mapping) & ~gfp_notmask);
+ 	if (!page)
+-		return NULL;
++		goto out;
+ 	status = add_to_page_cache_lru(page, mapping, index,
+ 						GFP_KERNEL & ~gfp_notmask);
+ 	if (unlikely(status)) {
+ 		page_cache_release(page);
+ 		if (status == -EEXIST)
+ 			goto repeat;
+-		return NULL;
++		page = NULL;
+ 	}
++
++out:
++	trace_page_cache_acct_miss(mapping->host->i_sb, WRITE);
+ 	return page;
+ }
+ EXPORT_SYMBOL(grab_cache_page_write_begin);

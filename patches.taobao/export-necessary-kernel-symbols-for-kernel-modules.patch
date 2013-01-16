@@ -1,0 +1,202 @@
+From: Pu Kong <pukong.wjm@taobao.com>
+Subject: [PATCH] export symbols needed for external kernel module
+Date: Fri, 30 Mar 2012 12:02:47 +0800
+Patch-mainline: in-house-usage
+
+This patch exports several symbols which is needed by external kernel
+module customized for taobao.
+
+Signed-off-by: Pu Kong <pukong.wjm@taobao.com>
+Signed-off-by: Bing Tian <bingtian.ly@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ include/net/inet_common.h |    2 +-
+ include/net/ipv6.h        |    8 +++++++-
+ include/net/transp_v6.h   |    3 ++-
+ kernel/kallsyms.c         |    1 +
+ net/ipv4/af_inet.c        |    2 +-
+ net/ipv4/tcp_ipv4.c       |    2 +-
+ net/ipv6/af_inet6.c       |    3 ++-
+ net/ipv6/tcp_ipv6.c       |   13 ++++++++-----
+ 8 files changed, 23 insertions(+), 11 deletions(-)
+
+diff --git a/include/net/inet_common.h b/include/net/inet_common.h
+index 18c7732..ad5535e 100644
+--- a/include/net/inet_common.h
++++ b/include/net/inet_common.h
+@@ -1,7 +1,7 @@
+ #ifndef _INET_COMMON_H
+ #define _INET_COMMON_H
+ 
+-extern const struct proto_ops		inet_stream_ops;
++extern struct proto_ops		inet_stream_ops;
+ extern const struct proto_ops		inet_dgram_ops;
+ 
+ /*
+diff --git a/include/net/ipv6.h b/include/net/ipv6.h
+index 92858a0..228fefd 100644
+--- a/include/net/ipv6.h
++++ b/include/net/ipv6.h
+@@ -598,7 +598,7 @@ extern int inet6_hash_connect(struct inet_timewait_death_row *death_row,
+ /*
+  * reassembly.c
+  */
+-extern const struct proto_ops inet6_stream_ops;
++extern struct proto_ops inet6_stream_ops;
+ extern const struct proto_ops inet6_dgram_ops;
+ 
+ struct group_source_req;
+@@ -648,5 +648,11 @@ extern int ipv6_static_sysctl_register(void);
+ extern void ipv6_static_sysctl_unregister(void);
+ #endif
+ 
++/* public func in tcp_ipv6.c */
++extern struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
++					struct request_sock *req,
++					struct dst_entry *dst);
++extern struct inet_connection_sock_af_ops ipv6_specific;
++
+ #endif /* __KERNEL__ */
+ #endif /* _NET_IPV6_H */
+diff --git a/include/net/transp_v6.h b/include/net/transp_v6.h
+index 8beefe1..9f468bb 100644
+--- a/include/net/transp_v6.h
++++ b/include/net/transp_v6.h
+@@ -53,7 +53,8 @@ extern int			datagram_send_ctl(struct net *net,
+ /*
+  *	address family specific functions
+  */
+-extern const struct inet_connection_sock_af_ops ipv4_specific;
++extern struct inet_connection_sock_af_ops ipv6_mapped;
++extern struct inet_connection_sock_af_ops ipv4_specific;
+ 
+ extern void inet6_destroy_sock(struct sock *sk);
+ 
+diff --git a/kernel/kallsyms.c b/kernel/kallsyms.c
+index c6da384..0a31128 100644
+--- a/kernel/kallsyms.c
++++ b/kernel/kallsyms.c
+@@ -181,6 +181,7 @@ unsigned long kallsyms_lookup_name(const char *name)
+ 	}
+ 	return module_kallsyms_lookup_name(name);
+ }
++EXPORT_SYMBOL_GPL(kallsyms_lookup_name);
+ 
+ int kallsyms_on_each_symbol(int (*fn)(void *, const char *, struct module *,
+ 				      unsigned long),
+diff --git a/net/ipv4/af_inet.c b/net/ipv4/af_inet.c
+index 039abd6..1f83d8f 100644
+--- a/net/ipv4/af_inet.c
++++ b/net/ipv4/af_inet.c
+@@ -871,7 +871,7 @@ int inet_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
+ }
+ EXPORT_SYMBOL(inet_ioctl);
+ 
+-const struct proto_ops inet_stream_ops = {
++struct proto_ops inet_stream_ops = {
+ 	.family		   = PF_INET,
+ 	.owner		   = THIS_MODULE,
+ 	.release	   = inet_release,
+diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
+index 3765520..f43a3b3 100644
+--- a/net/ipv4/tcp_ipv4.c
++++ b/net/ipv4/tcp_ipv4.c
+@@ -1762,7 +1762,7 @@ int tcp_v4_tw_remember_stamp(struct inet_timewait_sock *tw)
+ 	return 0;
+ }
+ 
+-const struct inet_connection_sock_af_ops ipv4_specific = {
++struct inet_connection_sock_af_ops ipv4_specific = {
+ 	.queue_xmit	   = ip_queue_xmit,
+ 	.send_check	   = tcp_v4_send_check,
+ 	.rebuild_header	   = inet_sk_rebuild_header,
+diff --git a/net/ipv6/af_inet6.c b/net/ipv6/af_inet6.c
+index b2877b6..95dede8 100644
+--- a/net/ipv6/af_inet6.c
++++ b/net/ipv6/af_inet6.c
+@@ -503,7 +503,7 @@ int inet6_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
+ 
+ EXPORT_SYMBOL(inet6_ioctl);
+ 
+-const struct proto_ops inet6_stream_ops = {
++struct proto_ops inet6_stream_ops = {
+ 	.family		   = PF_INET6,
+ 	.owner		   = THIS_MODULE,
+ 	.release	   = inet6_release,
+@@ -528,6 +528,7 @@ const struct proto_ops inet6_stream_ops = {
+ 	.compat_getsockopt = compat_sock_common_getsockopt,
+ #endif
+ };
++EXPORT_SYMBOL(inet6_stream_ops);
+ 
+ const struct proto_ops inet6_dgram_ops = {
+ 	.family		   = PF_INET6,
+diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
+index 8babc93..ddc5826 100644
+--- a/net/ipv6/tcp_ipv6.c
++++ b/net/ipv6/tcp_ipv6.c
+@@ -76,8 +76,8 @@ static void	tcp_v6_reqsk_send_ack(struct sock *sk, struct sk_buff *skb,
+ 
+ static int	tcp_v6_do_rcv(struct sock *sk, struct sk_buff *skb);
+ 
+-static const struct inet_connection_sock_af_ops ipv6_mapped;
+-static const struct inet_connection_sock_af_ops ipv6_specific;
++struct inet_connection_sock_af_ops ipv6_mapped;
++struct inet_connection_sock_af_ops ipv6_specific;
+ #ifdef CONFIG_TCP_MD5SIG
+ static const struct tcp_sock_af_ops tcp_sock_ipv6_specific;
+ static const struct tcp_sock_af_ops tcp_sock_ipv6_mapped_specific;
+@@ -1257,7 +1257,7 @@ drop:
+ 	return 0; /* don't send reset */
+ }
+ 
+-static struct sock * tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
++struct sock *tcp_v6_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
+ 					  struct request_sock *req,
+ 					  struct dst_entry *dst)
+ {
+@@ -1467,6 +1467,7 @@ out:
+ 	NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_LISTENDROPS);
+ 	return NULL;
+ }
++EXPORT_SYMBOL(tcp_v6_syn_recv_sock);
+ 
+ static __sum16 tcp_v6_checksum_init(struct sk_buff *skb)
+ {
+@@ -1768,7 +1769,7 @@ static int tcp_v6_remember_stamp(struct sock *sk)
+ 	return 0;
+ }
+ 
+-static const struct inet_connection_sock_af_ops ipv6_specific = {
++struct inet_connection_sock_af_ops ipv6_specific = {
+ 	.queue_xmit	   = inet6_csk_xmit,
+ 	.send_check	   = tcp_v6_send_check,
+ 	.rebuild_header	   = inet6_sk_rebuild_header,
+@@ -1786,6 +1787,7 @@ static const struct inet_connection_sock_af_ops ipv6_specific = {
+ 	.compat_getsockopt = compat_ipv6_getsockopt,
+ #endif
+ };
++EXPORT_SYMBOL(ipv6_specific);
+ 
+ #ifdef CONFIG_TCP_MD5SIG
+ static const struct tcp_sock_af_ops tcp_sock_ipv6_specific = {
+@@ -1800,7 +1802,7 @@ static const struct tcp_sock_af_ops tcp_sock_ipv6_specific = {
+  *	TCP over IPv4 via INET6 API
+  */
+ 
+-static const struct inet_connection_sock_af_ops ipv6_mapped = {
++struct inet_connection_sock_af_ops ipv6_mapped = {
+ 	.queue_xmit	   = ip_queue_xmit,
+ 	.send_check	   = tcp_v4_send_check,
+ 	.rebuild_header	   = inet_sk_rebuild_header,
+@@ -1818,6 +1820,7 @@ static const struct inet_connection_sock_af_ops ipv6_mapped = {
+ 	.compat_getsockopt = compat_ipv6_getsockopt,
+ #endif
+ };
++EXPORT_SYMBOL(ipv6_mapped);
+ 
+ #ifdef CONFIG_TCP_MD5SIG
+ static const struct tcp_sock_af_ops tcp_sock_ipv6_mapped_specific = {
+-- 
+1.5.5.6
+

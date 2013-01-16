@@ -1,0 +1,83 @@
+From 2bde0f9b321615091d600adb84890856e6d8e33b Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Fri, 18 Nov 2011 23:21:10 +0800
+Subject: [PATCH 13/22] ext4: Create a new function search_dir.
+Patch-mainline: in-house
+
+search_dirblock is used to search a dir block, but the code is
+almost the same for searching an inline dir.
+
+So create a new fuction search_dir and let search_dirblock
+call it.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 9fec25f..025793f 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1798,6 +1798,13 @@ extern int ext4_orphan_add(handle_t *, struct inode *);
+ extern int ext4_orphan_del(handle_t *, struct inode *);
+ extern int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
+ 				__u32 start_minor_hash, __u32 *next_hash);
++extern int search_dir(struct buffer_head *bh,
++		      char *search_buf,
++		      int buf_size,
++		      struct inode *dir,
++		      const struct qstr *d_name,
++		      unsigned int offset,
++		      struct ext4_dir_entry_2 **res_dir);
+ 
+ /* resize.c */
+ extern int ext4_group_add(struct super_block *sb,
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index f1e721b..5c8e47b 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -793,11 +793,13 @@ static inline int ext4_match (int len, const char * const name,
+ /*
+  * Returns 0 if not found, -1 on failure, and 1 on success
+  */
+-static inline int search_dirblock(struct buffer_head *bh,
+-				  struct inode *dir,
+-				  const struct qstr *d_name,
+-				  unsigned int offset,
+-				  struct ext4_dir_entry_2 ** res_dir)
++int search_dir(struct buffer_head *bh,
++	       char *search_buf,
++	       int buf_size,
++	       struct inode *dir,
++	       const struct qstr *d_name,
++	       unsigned int offset,
++	       struct ext4_dir_entry_2 **res_dir)
+ {
+ 	struct ext4_dir_entry_2 * de;
+ 	char * dlimit;
+@@ -805,8 +807,8 @@ static inline int search_dirblock(struct buffer_head *bh,
+ 	const char *name = d_name->name;
+ 	int namelen = d_name->len;
+ 
+-	de = (struct ext4_dir_entry_2 *) bh->b_data;
+-	dlimit = bh->b_data + dir->i_sb->s_blocksize;
++	de = (struct ext4_dir_entry_2 *)search_buf;
++	dlimit = search_buf + buf_size;
+ 	while ((char *) de < dlimit) {
+ 		/* this code is executed quadratically often */
+ 		/* do minimal checking `by hand' */
+@@ -832,6 +834,16 @@ static inline int search_dirblock(struct buffer_head *bh,
+ 	return 0;
+ }
+ 
++static inline int search_dirblock(struct buffer_head *bh,
++				  struct inode *dir,
++				  const struct qstr *d_name,
++				  unsigned int offset,
++				  struct ext4_dir_entry_2 **res_dir)
++{
++	return search_dir(bh, bh->b_data, dir->i_sb->s_blocksize, dir,
++			  d_name, offset, res_dir);
++}
++
+ 
+ /*
+  *	ext4_find_entry()

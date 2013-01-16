@@ -1,0 +1,73 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH 3/3 v2.1] ext4: add expose_stale_data in sysfs to enable/disable this feature
+Patch-mainline:  In house
+References: 
+
+'expose_stale_data' variable in sysfs is defined to switch on/off this feature.
+On default, this feature is disabled.  If administrator wants to enable it,
+he/she can echo a positive to this variable.
+
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+Acked-by: 
+
+Index: linux-2.6.32-220.13.1.el5/fs/ext4/ext4.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/ext4/ext4.h
++++ linux-2.6.32-220.13.1.el5/fs/ext4/ext4.h
+@@ -1233,6 +1233,12 @@ struct ext4_sb_info {
+ 	/* for io type accouting */
+ 	int s_ios_enable;
+ 	struct percpu_counter s_ios_counters[EXT4_IOS_TYPE_END][2];
++
++	/* Expose stale data to avoid to initialize an unwritten extent
++	 *
++	 * disable: 0 (deafult), enable: 1
++	 */
++	unsigned int s_expose_stale_data;
+ };
+ 
+ static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
+Index: linux-2.6.32-220.13.1.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/ext4/super.c
++++ linux-2.6.32-220.13.1.el5/fs/ext4/super.c
+@@ -2490,6 +2490,7 @@ EXT4_RW_ATTR_SBI_UI(mb_order2_req, s_mb_
+ EXT4_RW_ATTR_SBI_UI(mb_stream_req, s_mb_stream_request);
+ EXT4_RW_ATTR_SBI_UI(mb_group_prealloc, s_mb_group_prealloc);
+ EXT4_RW_ATTR_SBI_UI(max_writeback_mb_bump, s_max_writeback_mb_bump);
++EXT4_RW_ATTR_SBI_UI(expose_stale_data, s_expose_stale_data);
+ 
+ static struct attribute *ext4_attrs[] = {
+ 	ATTR_LIST(delayed_allocation_blocks),
+@@ -2507,6 +2508,7 @@ static struct attribute *ext4_attrs[] = 
+ 	ATTR_LIST(mb_stream_req),
+ 	ATTR_LIST(mb_group_prealloc),
+ 	ATTR_LIST(max_writeback_mb_bump),
++	ATTR_LIST(expose_stale_data),
+ 	NULL,
+ };
+ 
+Index: linux-2.6.32-220.13.1.el5/fs/ext4/extents.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/ext4/extents.c
++++ linux-2.6.32-220.13.1.el5/fs/ext4/extents.c
+@@ -4234,6 +4234,7 @@ static void ext4_falloc_update_inode(str
+  */
+ long ext4_fallocate(struct inode *inode, int mode, loff_t offset, loff_t len)
+ {
++	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
+ 	struct ext4_map_blocks map;
+ 	handle_t *handle;
+ 	ext4_lblk_t block;
+@@ -4257,6 +4258,11 @@ long ext4_fallocate(struct inode *inode,
+ 	if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_EXPOSE_STALE_DATA))
+ 		return -EOPNOTSUPP;
+ 
++	/* Only administrator has privilege to enable this feature */
++	if ((mode & FALLOC_FL_EXPOSE_STALE_DATA) &&
++	    (!sbi->s_expose_stale_data))
++		return -EPERM;
++
+ 	/* preallocation to directories is currently not supported */
+ 	if (S_ISDIR(inode->i_mode))
+ 		return -ENODEV;

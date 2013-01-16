@@ -1,0 +1,126 @@
+From: Michal Hocko <mhocko@suse.cz>
+Subject: [PATCH 3/7] Consider NO_HZ when printing idle and iowait times
+Patch-mainline: v3.1-rc1+
+Reference: BF#152721
+
+proc: Consider NO_HZ when printing idle and iowait times
+
+show_stat handler of the /proc/stat file relies on kstat_cpu(cpu)
+statistics when priting information about idle and iowait times.
+This is OK if we are not using tickless kernel (CONFIG_NO_HZ) because
+counters are updated periodically.
+With NO_HZ things got more tricky because we are not doing idle/iowait
+accounting while we are tickless so the value might get outdated.
+Users of /proc/stat will notice that by unchanged idle/iowait values
+which is then interpreted as 0% idle/iowait time. From the user space
+POV this is an unexpected behavior and a change of the interface.
+
+Let's fix this by using get_cpu_{idle,iowait}_time_us which accounts the
+total idle/iowait time since boot and it doesn't rely on sampling or any
+other periodic activity. Fall back to the previous behavior if NO_HZ is
+disabled or not configured.
+
+[Notes from Zheng Liu]
+We add two new macros (cputime_to_usecs() and usecs_to_cputime()) due to
+get_idle_time() and get_iowait_time() use them. The commit is in d57af9b2.
+
+Signed-off-by: Michal Hocko <mhocko@suse.cz>
+Cc: Dave Jones <davej@redhat.com>
+Cc: Arnd Bergmann <arnd@arndb.de>
+Cc: Alexey Dobriyan <adobriyan@gmail.com>
+Link: http://lkml.kernel.org/r/39181366adac1b39cb6aa3cd53ff0f7c78d32676.1314172057.git.mhocko@suse.cz
+Signed-off-by: Thomas Gleixner <tglx@linutronix.de>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/fs/proc/stat.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/fs/proc/stat.c	2011-12-13 14:48:22.768887136 +0800
++++ linux-2.6.32-220.0.0.el5/fs/proc/stat.c	2011-12-13 15:27:30.376528282 +0800
+@@ -11,6 +11,7 @@
+ #include <linux/time.h>
+ #include <linux/irqnr.h>
+ #include <asm/cputime.h>
++#include <linux/tick.h>
+ 
+ #ifndef arch_irq_stat_cpu
+ #define arch_irq_stat_cpu(cpu) 0
+@@ -22,6 +23,35 @@
+ #define arch_idle_time(cpu) 0
+ #endif
+ 
++static cputime64_t get_idle_time(int cpu)
++{
++	u64 idle_time = get_cpu_idle_time_us(cpu, NULL);
++	cputime64_t idle;
++
++	if (idle_time == -1ULL) {
++		/* !NO_HZ so we can rely on cpustat.idle */
++		idle = kstat_cpu(cpu).cpustat.idle;
++		idle = cputime64_add(idle, arch_idle_time(cpu));
++	} else
++		idle = usecs_to_cputime(idle_time);
++
++	return idle;
++}
++
++static cputime64_t get_iowait_time(int cpu)
++{
++	u64 iowait_time = get_cpu_iowait_time_us(cpu, NULL);
++	cputime64_t iowait;
++
++	if (iowait_time == -1ULL)
++		/* !NO_HZ so we can rely on cpustat.iowait */
++		iowait = kstat_cpu(cpu).cpustat.iowait;
++	else
++		iowait = usecs_to_cputime(iowait_time);
++
++	return iowait;
++}
++
+ static int show_stat(struct seq_file *p, void *v)
+ {
+ 	int i, j;
+@@ -43,9 +73,8 @@
+ 		user = cputime64_add(user, kstat_cpu(i).cpustat.user);
+ 		nice = cputime64_add(nice, kstat_cpu(i).cpustat.nice);
+ 		system = cputime64_add(system, kstat_cpu(i).cpustat.system);
+-		idle = cputime64_add(idle, kstat_cpu(i).cpustat.idle);
+-		idle = cputime64_add(idle, arch_idle_time(i));
+-		iowait = cputime64_add(iowait, kstat_cpu(i).cpustat.iowait);
++		idle = cputime64_add(idle, get_idle_time(i));
++		iowait = cputime64_add(iowait, get_iowait_time(i));
+ 		irq = cputime64_add(irq, kstat_cpu(i).cpustat.irq);
+ 		softirq = cputime64_add(softirq, kstat_cpu(i).cpustat.softirq);
+ 		steal = cputime64_add(steal, kstat_cpu(i).cpustat.steal);
+@@ -78,9 +107,8 @@
+ 		user = kstat_cpu(i).cpustat.user;
+ 		nice = kstat_cpu(i).cpustat.nice;
+ 		system = kstat_cpu(i).cpustat.system;
+-		idle = kstat_cpu(i).cpustat.idle;
+-		idle = cputime64_add(idle, arch_idle_time(i));
+-		iowait = kstat_cpu(i).cpustat.iowait;
++		idle = get_idle_time(i);
++		iowait = get_iowait_time(i);
+ 		irq = kstat_cpu(i).cpustat.irq;
+ 		softirq = kstat_cpu(i).cpustat.softirq;
+ 		steal = kstat_cpu(i).cpustat.steal;
+Index: linux-2.6.32-220.0.0.el5/include/asm-generic/cputime.h
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/include/asm-generic/cputime.h	2011-12-13 13:40:02.492554953 +0800
++++ linux-2.6.32-220.0.0.el5/include/asm-generic/cputime.h	2011-12-13 15:27:30.376528282 +0800
+@@ -31,6 +31,15 @@
+ #define jiffies64_to_cputime64(__jif)	(__jif)
+ #define cputime_to_cputime64(__ct)	((u64) __ct)
+ 
++/*
++ * Convert cputime to microseconds and back.
++ *
++ * XXX: these macros is only called by get_idle_time()
++ *      and get_iowait_time() in fs/proc/stat.c.
++ *      Ref. d57af9b2142f31a39dcfdeb30776baadfc802827
++ */
++#define cputime_to_usecs(__ct)          jiffies_to_usecs(__ct)
++#define usecs_to_cputime(__msecs)       usecs_to_jiffies(__msecs)
+ 
+ /*
+  * Convert cputime to milliseconds and back.

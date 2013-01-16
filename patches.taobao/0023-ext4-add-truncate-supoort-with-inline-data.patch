@@ -1,0 +1,331 @@
+From db2a21d036834c326a901b88c5b223854022c621 Mon Sep 17 00:00:00 2001
+From: Robin Dong <sanbai@taobao.com>
+Date: Mon, 12 Dec 2011 17:24:57 +0800
+Subject: [PATCH 23/22] ext4: add truncate support with inline_data
+Patch-mainline: Will be upstream soon.
+References: in house
+
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Acked-by: 
+
+---
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inline.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inline.c	2012-06-20 00:10:50.800026991 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inline.c	2012-06-20 00:10:54.064043173 +0800
+@@ -97,8 +97,12 @@
+ 		return 0;
+ 
+ 	error = ext4_get_inode_loc(inode, &iloc);
+-	if (error)
+-		return error;
++	if (error) {
++		ext4_error_inode(__func__, inode,
++				 "can't get inode location %lu",
++				 inode->i_ino);
++		return 0;
++	}
+ 
+ 	max_inline_size = get_max_inline_xattr_value_size(inode, &iloc);
+ 
+@@ -112,7 +116,8 @@
+ 
+ int ext4_has_inline_data(struct inode *inode)
+ {
+-	return EXT4_I(inode)->i_inline_off && ext4_test_inode_flag(inode, EXT4_INODE_INLINE_DATA);
++	return ext4_test_inode_flag(inode, EXT4_INODE_INLINE_DATA) &&
++	       EXT4_I(inode)->i_inline_off;
+ }
+ 
+ int ext4_find_inline_data(struct inode *inode)
+@@ -178,6 +183,9 @@
+ 	entry = (struct ext4_xattr_entry *)((void *)raw_inode +
+ 					    EXT4_I(inode)->i_inline_off);
+ 
++	len = min_t(unsigned int, len,
++			(unsigned int)le32_to_cpu(entry->e_value_size));
++
+ 	memcpy(buffer,
+ 	       (void *)IFIRST(header) + le16_to_cpu(entry->e_value_offs), len);
+ 	cp_len += len;
+@@ -189,7 +197,7 @@
+ /*
+  * write the buffer to the inline inode.
+  * If 'create' is set, we don't need to do the extra copy in the xattr
+- * value since it is already handled by ext4_xattr_ibody_set. That saves
++ * value since it is already handled by ext4_xattr_ibody_inline_set. That saves
+  * us one memcpy.
+  */
+ void ext4_write_inline_data(struct inode *inode, struct ext4_iloc *iloc,
+@@ -267,7 +275,7 @@
+ 
+ 	BUG_ON(!is.s.not_found);
+ 
+-	error = ext4_xattr_ibody_set(handle, inode, &i, &is);
++	error = ext4_xattr_ibody_inline_set(handle, inode, &i, &is);
+ 	if (error) {
+ 		if (error == -ENOSPC)
+ 			ext4_clear_inode_state(inode,
+@@ -336,7 +344,7 @@
+ 	i.value = value;
+ 	i.value_len = len;
+ 
+-	error = ext4_xattr_ibody_set(handle, inode, &i, &is);
++	error = ext4_xattr_ibody_inline_set(handle, inode, &i, &is);
+ 	if (error)
+ 		goto out;
+ 
+@@ -408,7 +416,7 @@
+ 	if (error)
+ 		goto out;
+ 
+-	error = ext4_xattr_ibody_set(handle, inode, &i, &is);
++	error = ext4_xattr_ibody_inline_set(handle, inode, &i, &is);
+ 	if (error)
+ 		goto out;
+ 
+@@ -442,6 +450,7 @@
+ {
+ 	void *kaddr;
+ 	int ret = 0;
++	size_t len;
+ 	struct ext4_iloc iloc;
+ 
+ 	BUG_ON(!PageLocked(page));
+@@ -458,10 +467,12 @@
+ 	if (ret)
+ 		goto out;
+ 
++	len = min_t(size_t, ext4_get_inline_size(inode), i_size_read(inode));
+ 	kaddr = kmap_atomic(page, KM_USER0);
+-	ret = ext4_read_inline_data(inode, kaddr, ext4_get_inline_size(inode), &iloc);
++	ret = ext4_read_inline_data(inode, kaddr, len, &iloc);
+ 	flush_dcache_page(page);
+ 	kunmap_atomic(kaddr, KM_USER0);
++	zero_user_segment(page, len, PAGE_CACHE_SIZE);
+ 	SetPageUptodate(page);
+ 	brelse(iloc.bh);
+ 
+@@ -485,8 +496,10 @@
+ 	 */
+ 	if (!page->index)
+ 		ret = ext4_read_inline_page(inode, page);
+-	else if (!PageUptodate(page))
++	else if (!PageUptodate(page)) {
++		zero_user_segment(page, 0, PAGE_CACHE_SIZE);
+ 		SetPageUptodate(page);
++	}
+ 
+ 	up_read(&EXT4_I(inode)->xattr_sem);
+ 
+@@ -549,12 +562,7 @@
+ 	from = 0;
+ 	to = ext4_get_inline_size(inode);
+ 	if (!PageUptodate(page)) {
+-		void *kaddr = kmap_atomic(page, KM_USER0);
+-		ret = ext4_read_inline_data(inode, kaddr,
+-					    i_size_read(inode), &iloc);
+-		flush_dcache_page(page);
+-		kunmap_atomic(kaddr, KM_USER0);
+-		SetPageUptodate(page);
++		ret = ext4_read_inline_page(inode, page);
+ 		if (ret < 0)
+ 			goto out;
+ 	}
+@@ -1639,3 +1647,77 @@
+ 	brelse(iloc.bh);
+ 	return error;
+ }
++
++void ext4_inline_data_truncate(struct inode *inode)
++{
++	handle_t *handle;
++	int inline_size = ext4_get_inline_size(inode);
++	size_t isize = i_size_read(inode);
++	int needed_blocks, value_len;
++	void *value = NULL;
++	struct ext4_xattr_ibody_find is = {
++		.s = { .not_found = -ENODATA, },
++	};
++	struct ext4_xattr_info i = {
++		.name_index = EXT4_XATTR_INDEX_SYSTEM_DATA,
++		.name = EXT4_XATTR_SYSTEM_DATA_NAME,
++	};
++
++	needed_blocks = ext4_writepage_trans_blocks(inode);
++	handle = ext4_journal_start(inode, needed_blocks);
++	if (IS_ERR(handle))
++		return;
++
++	if (ext4_orphan_add(handle, inode))
++		goto out;
++
++	EXT4_I(inode)->i_disksize = inode->i_size;
++
++	if (isize < ext4_get_max_inline_size(inode)) {
++		if (ext4_get_inode_loc(inode, &is.iloc))
++			goto out;
++
++		if (isize < EXT4_MIN_INLINE_DATA_SIZE)
++			memset(ext4_raw_inode(&is.iloc)->i_block + isize, 0,
++					EXT4_MIN_INLINE_DATA_SIZE - isize);
++		if (inline_size > EXT4_MIN_INLINE_DATA_SIZE &&
++				isize < inline_size) {
++			if (ext4_xattr_ibody_find(inode, &i, &is))
++				goto out_bh;
++
++			BUG_ON(is.s.not_found);
++
++			value_len = le32_to_cpu(is.s.here->e_value_size);
++			value = kmalloc(value_len, GFP_NOFS);
++
++			if (ext4_xattr_ibody_get(inode, i.name_index, i.name,
++						value, value_len))
++				goto out_bh;
++
++			i.value = value;
++			i.value_len = isize - EXT4_MIN_INLINE_DATA_SIZE;
++			if (ext4_xattr_ibody_inline_set(handle, inode, &i, &is))
++				goto out_bh;
++		}
++		if (isize < inline_size)
++			EXT4_I(inode)->i_inline_size = isize <
++				EXT4_MIN_INLINE_DATA_SIZE ?
++				EXT4_MIN_INLINE_DATA_SIZE : isize;
++out_bh:
++		if (value)
++			kfree(value);
++		brelse(is.iloc.bh);
++	} else
++		ext4_convert_inline_data_to_extent(inode->i_mapping, inode, 0);
++
++out:
++	if (inode->i_nlink)
++		ext4_orphan_del(handle, inode);
++
++	inode->i_mtime = inode->i_ctime = ext4_current_time(inode);
++	ext4_mark_inode_dirty(handle, inode);
++	if (IS_SYNC(inode))
++		ext4_handle_sync(handle);
++
++	ext4_journal_stop(handle);
++}
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:10:50.804027006 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:10:54.064043173 +0800
+@@ -4917,6 +4917,11 @@
+ 	if (inode->i_size == 0 && !test_opt(inode->i_sb, NO_AUTO_DA_ALLOC))
+ 		ext4_set_inode_state(inode, EXT4_STATE_DA_ALLOC_CLOSE);
+ 
++	if (ext4_has_inline_data(inode)) {
++		ext4_inline_data_truncate(inode);
++		return;
++	}
++
+ 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
+ 		ext4_ext_truncate(inode);
+ 		return;
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/xattr.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/xattr.c	2012-06-20 00:10:49.012018126 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/xattr.c	2012-06-20 00:10:54.064043173 +0800
+@@ -891,6 +891,30 @@
+ 	return 0;
+ }
+ 
++int ext4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
++				struct ext4_xattr_info *i,
++				struct ext4_xattr_ibody_find *is)
++{
++	struct ext4_xattr_ibody_header *header;
++	struct ext4_xattr_search *s = &is->s;
++	int error;
++
++	if (EXT4_I(inode)->i_extra_isize == 0)
++		return -ENOSPC;
++	error = ext4_xattr_set_entry(i, s);
++	if (error)
++		return error;
++	header = IHDR(inode, ext4_raw_inode(&is->iloc));
++	if (!IS_LAST_ENTRY(s->first)) {
++		header->h_magic = cpu_to_le32(EXT4_XATTR_MAGIC);
++		ext4_set_inode_state(inode, EXT4_STATE_XATTR);
++	} else {
++		header->h_magic = cpu_to_le32(0);
++		ext4_clear_inode_state(inode, EXT4_STATE_XATTR);
++	}
++	return 0;
++}
++
+ int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
+ 			 struct ext4_xattr_info *i,
+ 			 struct ext4_xattr_ibody_find *is)
+@@ -902,18 +926,19 @@
+ 	if (EXT4_I(inode)->i_extra_isize == 0)
+ 		return -ENOSPC;
+ 	error = ext4_xattr_set_entry(i, s);
+-	if (error && error != -ENOSPC)
+-		return error;
+-	if (error && ext4_has_inline_data(inode)) {
+-		error = ext4_try_to_evict_inline_data(handle, inode,
+-				EXT4_XATTR_LEN(strlen(i->name) +
+-				EXT4_XATTR_SIZE(i->value_len)));
+-		if (error)
+-			return error;
+-		error = ext4_xattr_ibody_find(inode, i, is);
+-		if (error)
+-			return error;
+-		error = ext4_xattr_set_entry(i, s);
++	if (error) {
++		if (error == -ENOSPC &&
++		    ext4_has_inline_data(inode)) {
++			error = ext4_try_to_evict_inline_data(handle, inode,
++					EXT4_XATTR_LEN(strlen(i->name) +
++					EXT4_XATTR_SIZE(i->value_len)));
++			if (error)
++				return error;
++			error = ext4_xattr_ibody_find(inode, i, is);
++			if (error)
++				return error;
++			error = ext4_xattr_set_entry(i, s);
++		}
+ 		if (error)
+ 			return error;
+ 	}
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/xattr.h
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/xattr.h	2012-06-20 00:10:49.012018126 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/xattr.h	2012-06-20 00:10:54.064043173 +0800
+@@ -117,6 +117,9 @@
+ 
+ extern int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
+ 				 struct ext4_xattr_ibody_find *is);
++extern int ext4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
++				struct ext4_xattr_info *i,
++				struct ext4_xattr_ibody_find *is);
+ extern int ext4_xattr_ibody_set(handle_t *handle, struct inode *inode,
+ 				struct ext4_xattr_info *i,
+ 				struct ext4_xattr_ibody_find *is);
+@@ -187,6 +190,8 @@
+ extern int ext4_try_to_evict_inline_data(handle_t *handle,
+ 					 struct inode *inode,
+ 					 int needed);
++extern void ext4_inline_data_truncate(struct inode *inode);
++
+ # else  /* CONFIG_EXT4_FS_XATTR */
+ 
+ static inline int
+@@ -404,6 +409,12 @@
+ {
+ 	return 0;
+ }
++
++static inline void ext4_inline_data_truncate(struct inode *inode)
++{
++	return;
++}
++
+ # endif  /* CONFIG_EXT4_FS_XATTR */
+ 
+ #ifdef CONFIG_EXT4_FS_SECURITY

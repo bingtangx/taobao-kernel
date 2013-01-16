@@ -1,0 +1,93 @@
+From: Miklos Szeredi <mszeredi@suse.cz>
+Date: Tue, 21 Feb 2012 16:18:12 +0800
+Subject: [PATCH 10/11] fs: limit filesystem stacking depth
+Patch-mainline: in house patch
+
+Add a simple read-only counter to super_block that indicates deep this
+is in the stack of filesystems.  Previously ecryptfs was the only
+stackable filesystem and it explicitly disallowed multiple layers of
+itself.
+
+Overlayfs, however, can be stacked recursively and also may be stacked
+on top of ecryptfs or vice versa.
+
+To limit the kernel stack usage we must limit the depth of the
+filesystem stack.  Initially the limit is set to 2.
+
+Signed-off-by: Miklos Szeredi <mszeredi@suse.cz>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ fs/ecryptfs/main.c   |    8 ++++++++
+ fs/overlayfs/super.c |    9 +++++++++
+ include/linux/fs.h   |   11 +++++++++++
+ 3 files changed, 28 insertions(+), 0 deletions(-)
+
+Index: linux-2.6.32-220.13.1.el5/fs/ecryptfs/main.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/ecryptfs/main.c	2012-05-07 17:13:51.084413138 +0800
++++ linux-2.6.32-220.13.1.el5/fs/ecryptfs/main.c	2012-05-07 17:15:16.792838139 +0800
+@@ -578,6 +578,14 @@
+ 	ecryptfs_set_superblock_lower(sb, path.dentry->d_sb);
+ 	sb->s_maxbytes = path.dentry->d_sb->s_maxbytes;
+ 	sb->s_blocksize = path.dentry->d_sb->s_blocksize;
++	sb->s_stack_depth = path.dentry->d_sb->s_stack_depth + 1;
++
++	rc = -EINVAL;
++	if (sb->s_stack_depth > FILESYSTEM_MAX_STACK_DEPTH) {
++		printk(KERN_ERR "eCryptfs: maximum fs stacking depth exceeded\n");
++		goto out_free;
++	}
++
+ 	ecryptfs_set_dentry_lower(sb->s_root, path.dentry);
+ 	ecryptfs_set_dentry_lower_mnt(sb->s_root, path.mnt);
+ 	rc = ecryptfs_interpose(path.dentry, sb->s_root, sb, 0);
+Index: linux-2.6.32-220.13.1.el5/fs/overlayfs/super.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/overlayfs/super.c	2012-05-07 17:15:15.104829820 +0800
++++ linux-2.6.32-220.13.1.el5/fs/overlayfs/super.c	2012-05-07 17:15:16.792838139 +0800
+@@ -553,6 +553,15 @@
+ 	    !S_ISDIR(lowerpath.dentry->d_inode->i_mode))
+ 		goto out_put_lowerpath;
+ 
++	sb->s_stack_depth = max(upperpath.mnt->mnt_sb->s_stack_depth,
++				lowerpath.mnt->mnt_sb->s_stack_depth) + 1;
++
++	err = -EINVAL;
++	if (sb->s_stack_depth > FILESYSTEM_MAX_STACK_DEPTH) {
++		printk(KERN_ERR "overlayfs: maximum fs stacking depth exceeded\n");
++		goto out_put_lowerpath;
++	}
++
+ 	ufs->upper_mnt = clone_private_mount(&upperpath);
+ 	err = PTR_ERR(ufs->upper_mnt);
+ 	if (IS_ERR(ufs->upper_mnt)) {
+Index: linux-2.6.32-220.13.1.el5/include/linux/fs.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/fs.h	2012-05-07 17:15:02.996769724 +0800
++++ linux-2.6.32-220.13.1.el5/include/linux/fs.h	2012-05-07 17:15:16.792838139 +0800
+@@ -494,6 +494,12 @@
+  */
+ #include <linux/quota.h>
+ 
++/*
++ * Maximum number of layers of fs stack.  Needs to be limited to
++ * prevent kernel stack overflow
++ */
++#define FILESYSTEM_MAX_STACK_DEPTH 2
++
+ /** 
+  * enum positive_aop_returns - aop return codes with specific semantics
+  *
+@@ -1447,6 +1453,11 @@
+ 	 * generic_show_options()
+ 	 */
+ 	char *s_options;
++
++	/*
++	 * Indicates how deep in a filesystem stack this SB is
++	 */
++	int s_stack_depth;
+ };
+ 
+ extern struct timespec current_fs_time(struct super_block *sb);

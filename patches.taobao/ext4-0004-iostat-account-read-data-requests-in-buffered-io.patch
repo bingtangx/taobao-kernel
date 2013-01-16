@@ -1,0 +1,36 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH v2 4/8] ext4: account the data request of read operations in buffered io
+Patch-mainline: in house patch
+
+ext4_ios_read are called in ext4_readpage and ext4_readpages in order to
+account the data request.
+
+Signed-off-by: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:13:28.704809995 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:13:38.764859893 +0800
+@@ -3739,8 +3739,11 @@
+ 	if (ext4_has_inline_data(inode))
+ 		ret = ext4_readpage_inline(inode, page);
+ 
+-	if (ret == -EAGAIN)
++	if (ret == -EAGAIN) {
++		ext4_ios_read(page->mapping->host->i_sb, EXT4_IOS_REGULAR_DATA,
++			      ext4_blocks_per_page(page->mapping->host));
+ 		return mpage_readpage(page, ext4_get_block);
++	}
+ 
+ 	return ret;
+ }
+@@ -3755,6 +3758,8 @@
+ 	if (ext4_has_inline_data(inode))
+ 		return 0;
+ 
++	ext4_ios_read(mapping->host->i_sb, EXT4_IOS_REGULAR_DATA,
++		      ext4_blocks_per_page(mapping->host) * nr_pages);
+ 	return mpage_readpages(mapping, pages, nr_pages, ext4_get_block);
+ }
+ 

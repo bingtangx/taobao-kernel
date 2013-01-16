@@ -1,0 +1,110 @@
+Subject: [PATCH v2] writeback: fixup bdi_writeback_task() burning CPU cycles
+
+From: Zheng Liu <wenqing.lz@taobao.com>
+
+When an inode is marked dirty, flusher will be waken up and inodes which had
+their first dirtying at a time earlier than dirty_expire_interval will be
+written out.  But if there is no any dirty page which satisfies this condition
+and dirty_writeback_interval == 0, flusher will run in this loop frequently
+because wait_jiffies is always equal to -1UL.
+
+We met this problem on ad system.  Now the solution makes that wait_jiffies is
+not equal to -1UL.  msecs_to_jiffies() can handle 0.  So we don't need to worry
+about it when dirty_writeback_interval == 0.  In addition, we will return from
+this function immediately when dirty_writeback_interval == 0.  This also can
+reduce the utilization of CPU.
+
+*WARNING*
+Please DO NOT set dirty_writeback_interval == 0 if there is no any particular
+need because the data will be lost when power failure.
+
+In mainline kernel, Artem Bityutskiy provides a better solution to fix this bug.
+But it needs to modify a lot of codes.  So I think we'd better wait Redhat to
+backport these patches.  The patch series contains:
+
+Artem Bityutskiy(15):
+      writeback: harmonize writeback threads naming
+      writeback: fix possible race when creating bdi threads
+      writeback: do not lose wake-ups in the forker thread - 1
+      writeback: do not lose wake-ups in the forker thread - 2
+      writeback: do not lose wake-ups in bdi threads
+      writeback: simplify bdi code a little
+      writeback: do not remove bdi from bdi_list
+      writeback: move last_active to bdi
+      writeback: restructure bdi forker loop a little
+      writeback: move bdi threads exiting logic to the forker thread
+      writeback: prevent unnecessary bdi threads wakeups
+      writeback: optimize periodic bdi thread wakeups
+      writeback: remove unnecessary init_timer call
+      writeback: add new tracepoints
+      writeback: cleanup bdi_register
+
+Patch-mainline: in-house
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+---
+v2 <- v1:
+ - fully eliminate to burn CPU cycles.
+ - abnormal the number of dirty pages disapprear has never seen again.
+
+Regards,
+						- Zheng
+
+ fs/fs-writeback.c |   24 ++++++++++++++++++------
+ mm/backing-dev.c  |    2 +-
+ 2 files changed, 19 insertions(+), 7 deletions(-)
+
+--- a/fs/fs-writeback.c
++++ b/fs/fs-writeback.c
+@@ -807,23 +807,35 @@
+ 		if (pages_written)
+ 			last_active = jiffies;
+ 		else if (wait_jiffies != -1UL) {
+-			unsigned long max_idle;
++			unsigned long max_idle = 0;
+ 
+ 			/*
+ 			 * Longest period of inactivity that we tolerate. If we
+ 			 * see dirty data again later, the task will get
+ 			 * recreated automatically.
++			 *
++			 * Note from Zheng Liu:
++			 * When dirty_writeback_interval == 0 and there is no
++			 * any dirty pages that need to be written out, we
++			 * should return immediately to avoid to burn CPU
++			 * cycles.
+ 			 */
+-			max_idle = max(5UL * 60 * HZ, wait_jiffies);
++			if (dirty_writeback_interval)
++				max_idle = max(5UL * 60 * HZ, wait_jiffies);
+ 			if (time_after(jiffies, max_idle + last_active))
+ 				break;
+ 		}
+ 
+-		if (dirty_writeback_interval) {
+-			wait_jiffies = msecs_to_jiffies(dirty_writeback_interval * 10);
++		/*
++		 * Upstream kernel has a better solution to fix this bug, but
++		 * it is quite complicated.  Please refer Artem Bityutskiy's
++		 * patch series: 253c34e9b10c30d3064be654b5b78fbc1a8b1896.
++		 */
++		wait_jiffies = msecs_to_jiffies(dirty_writeback_interval * 10);
++		if (dirty_writeback_interval)
+ 			schedule_timeout_interruptible(wait_jiffies);
+-		} else
+-			schedule();
++		else
++			schedule_timeout_interruptible(5UL * 60 * HZ);
+ 
+ 		try_to_freeze();
+ 	}
+--- a/mm/backing-dev.c
++++ b/mm/backing-dev.c
+@@ -421,7 +421,7 @@
+ 			if (wait)
+ 				schedule_timeout(wait);
+ 			else
+-				schedule();
++				schedule_timeout(5UL * 60 * HZ);
+ 			try_to_freeze();
+ 			continue;
+ 		}

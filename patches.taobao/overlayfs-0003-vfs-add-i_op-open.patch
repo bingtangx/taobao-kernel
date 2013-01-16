@@ -1,0 +1,140 @@
+From: Miklos Szeredi <mszeredi@suse.cz>
+Date: Tue, 21 Feb 2012 16:11:12 +0800
+Subject: [PATCH 3/11] vfs: add i_op->open()
+Patch-mainline: in house patch
+
+Add a new inode operation i_op->open().  This is for stacked
+filesystems that want to return a struct file from a different
+filesystem.
+
+Signed-off-by: Miklos Szeredi <mszeredi@suse.cz>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ Documentation/filesystems/Locking |    6 ++++++
+ Documentation/filesystems/vfs.txt |    8 ++++++++
+ fs/open.c                         |   25 +++++++++++++++++++++++--
+ include/linux/fs.h                |    3 +++
+ 4 files changed, 40 insertions(+), 2 deletions(-)
+
+Index: linux-2.6.32-220.13.1.el5/Documentation/filesystems/Locking
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/Documentation/filesystems/Locking	2012-05-07 17:13:51.468415045 +0800
++++ linux-2.6.32-220.13.1.el5/Documentation/filesystems/Locking	2012-05-07 17:15:02.996769724 +0800
+@@ -55,6 +55,9 @@
+ 	ssize_t (*getxattr) (struct dentry *, const char *, void *, size_t);
+ 	ssize_t (*listxattr) (struct dentry *, char *, size_t);
+ 	int (*removexattr) (struct dentry *, const char *);
++	void (*truncate_range)(struct inode *, loff_t, loff_t);
++	int (*fiemap)(struct inode *, struct fiemap_extent_info *, u64 start, u64 len);
++	struct file *(*open)(struct dentry *,struct file *,const struct cred *);
+ 
+ locking rules:
+ 	all may block, none have BKL
+@@ -78,6 +81,9 @@
+ getxattr:	no
+ listxattr:	no
+ removexattr:	yes
++truncate_range:	yes
++fiemap:		no
++open:		no
+ 	Additionally, ->rmdir(), ->unlink() and ->rename() have ->i_mutex on
+ victim.
+ 	cross-directory ->rename() has (per-superblock) ->s_vfs_rename_sem.
+Index: linux-2.6.32-220.13.1.el5/Documentation/filesystems/vfs.txt
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/Documentation/filesystems/vfs.txt	2012-05-07 17:13:51.480415103 +0800
++++ linux-2.6.32-220.13.1.el5/Documentation/filesystems/vfs.txt	2012-05-07 17:15:02.996769724 +0800
+@@ -333,6 +333,8 @@
+ 	ssize_t (*listxattr) (struct dentry *, char *, size_t);
+ 	int (*removexattr) (struct dentry *, const char *);
+ 	void (*truncate_range)(struct inode *, loff_t, loff_t);
++	struct file *(*open) (struct dentry *, struct file *,
++			      const struct cred *);
+ };
+ 
+ Again, all methods are called without any locks being held, unless
+@@ -437,6 +439,12 @@
+   truncate_range: a method provided by the underlying filesystem to truncate a
+   	range of blocks , i.e. punch a hole somewhere in a file.
+ 
++  open: this is an alternative to f_op->open(), the difference is that this
++	method may return any open file, not necessarily originating from the
++	same filesystem as the one i_op->open() was called on.  It may be useful
++	for stacking filesystems which want to allow native I/O directly on
++	underlying files.
++
+ 
+ The Address Space Object
+ ========================
+Index: linux-2.6.32-220.13.1.el5/fs/open.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/open.c	2012-05-07 17:15:00.816758898 +0800
++++ linux-2.6.32-220.13.1.el5/fs/open.c	2012-05-07 17:15:02.996769724 +0800
+@@ -776,7 +776,7 @@
+ 	filp = nd->intent.open.file;
+ 	/* Has the filesystem initialised the file for us? */
+ 	if (filp->f_path.dentry == NULL)
+-		filp = __dentry_open(&nd->path, filp, NULL, cred);
++		filp = vfs_open(&nd->path, filp, cred);
+ 
+ 	return filp;
+ }
+@@ -810,7 +810,7 @@
+ 	f = get_empty_filp();
+ 	if (f != NULL) {
+ 		f->f_flags = flags;
+-		ret = __dentry_open(&path, f, NULL, cred);
++		ret = vfs_open(&path, f, cred);
+ 	}
+ 	path_put(&path);
+ 
+@@ -818,6 +818,27 @@
+ }
+ EXPORT_SYMBOL(dentry_open);
+ 
++/**
++ * vfs_open - open the file at the given path
++ * @path: path to open
++ * @filp: newly allocated file with f_flag initialized
++ * @cred: credentials to use
++ *
++ * Open the file.  If successful, the returned file will have acquired
++ * an additional reference for path.
++ */
++struct file *vfs_open(struct path *path, struct file *filp,
++		      const struct cred *cred)
++{
++	struct inode *inode = path->dentry->d_inode;
++
++	if (inode->i_op->open)
++		return inode->i_op->open(path->dentry, filp, cred);
++	else
++		return __dentry_open(path, filp, NULL, cred);
++}
++EXPORT_SYMBOL(vfs_open);
++
+ static void __put_unused_fd(struct files_struct *files, unsigned int fd)
+ {
+ 	struct fdtable *fdt = files_fdtable(files);
+Index: linux-2.6.32-220.13.1.el5/include/linux/fs.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/fs.h	2012-05-07 17:14:07.420494145 +0800
++++ linux-2.6.32-220.13.1.el5/include/linux/fs.h	2012-05-07 17:15:02.996769724 +0800
+@@ -1603,6 +1603,8 @@
+ 			  loff_t len);
+ 	int (*fiemap)(struct inode *, struct fiemap_extent_info *, u64 start,
+ 		      u64 len);
++	struct file *(*open) (struct dentry *, struct file *,
++			      const struct cred *);
+ };
+ 
+ struct seq_file;
+@@ -1985,6 +1987,7 @@
+ extern long do_sys_open(int dfd, const char __user *filename, int flags,
+ 			int mode);
+ extern struct file *filp_open(const char *, int, int);
++extern struct file *vfs_open(struct path *, struct file *, const struct cred *);
+ extern struct file * dentry_open(struct dentry *, struct vfsmount *, int,
+ 				 const struct cred *);
+ extern int filp_close(struct file *, fl_owner_t id);

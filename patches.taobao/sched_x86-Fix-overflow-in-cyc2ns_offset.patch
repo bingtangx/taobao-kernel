@@ -1,0 +1,90 @@
+commit 9993bc635d01a6ee7f6b833b4ee65ce7c06350b1
+From: Salman Qazi <sqazi@google.com>
+Date:   Fri Mar 9 16:41:01 2012 -0800
+Subject: sched/x86: Fix overflow in cyc2ns_offset
+Reference: BFN #163357
+Patch-mainline: v3.3-rc7
+    
+    When a machine boots up, the TSC generally gets reset.  However,
+    when kexec is used to boot into a kernel, the TSC value would be
+    carried over from the previous kernel.  The computation of
+    cycns_offset in set_cyc2ns_scale is prone to an overflow, if the
+    machine has been up more than 208 days prior to the kexec.  The
+    overflow happens when we multiply *scale, even though there is
+    enough room to store the final answer.
+    
+    We fix this issue by decomposing tsc_now into the quotient and
+    remainder of division by CYC2NS_SCALE_FACTOR and then performing
+    the multiplication separately on the two components.
+    
+    Refactor code to share the calculation with the previous
+    fix in __cycles_2_ns().
+    
+Signed-off-by: Salman Qazi <sqazi@google.com>
+Acked-by: John Stultz <john.stultz@linaro.org>
+Acked-by: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Cc: Paul Turner <pjt@google.com>
+Cc: john stultz <johnstul@us.ibm.com>
+Link: http://lkml.kernel.org/r/20120310004027.19291.88460.stgit@dungbeetle.mtv.corp.google.com
+Signed-off-by: Ingo Molnar <mingo@elte.hu>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.13.1.el5/arch/x86/include/asm/timer.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/arch/x86/include/asm/timer.h	2012-05-02 20:50:55.553696350 +0800
++++ linux-2.6.32-220.13.1.el5/arch/x86/include/asm/timer.h	2012-05-02 20:51:01.597726304 +0800
+@@ -63,14 +63,10 @@
+ 
+ static inline unsigned long long __cycles_2_ns(unsigned long long cyc)
+ {
+-	unsigned long long quot;
+-	unsigned long long rem;
+ 	int cpu = smp_processor_id();
+ 	unsigned long long ns = per_cpu(cyc2ns_offset, cpu);
+-	quot = (cyc >> CYC2NS_SCALE_FACTOR);
+-	rem = cyc & ((1ULL << CYC2NS_SCALE_FACTOR) - 1);
+-	ns += quot * per_cpu(cyc2ns, cpu) +
+-		((rem * per_cpu(cyc2ns, cpu)) >> CYC2NS_SCALE_FACTOR);
++	ns += mult_frac(cyc, per_cpu(cyc2ns, cpu),
++			(1UL << CYC2NS_SCALE_FACTOR));
+ 	return ns;
+ }
+ 
+Index: linux-2.6.32-220.13.1.el5/arch/x86/kernel/tsc.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/arch/x86/kernel/tsc.c	2012-05-02 20:50:55.569696433 +0800
++++ linux-2.6.32-220.13.1.el5/arch/x86/kernel/tsc.c	2012-05-02 20:51:01.597726304 +0800
+@@ -619,7 +619,8 @@
+ 
+ 	if (cpu_khz) {
+ 		*scale = (NSEC_PER_MSEC << CYC2NS_SCALE_FACTOR)/cpu_khz;
+-		*offset = ns_now - (tsc_now * *scale >> CYC2NS_SCALE_FACTOR);
++		*offset = ns_now - mult_frac(tsc_now, *scale,
++					     (1UL << CYC2NS_SCALE_FACTOR));
+ 	}
+ 
+ 	sched_clock_idle_wakeup_event(0);
+Index: linux-2.6.32-220.13.1.el5/include/linux/kernel.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/kernel.h	2012-05-02 20:50:55.545696317 +0800
++++ linux-2.6.32-220.13.1.el5/include/linux/kernel.h	2012-05-02 20:51:01.597726304 +0800
+@@ -72,6 +72,19 @@
+ }							\
+ )
+ 
++/*
++ * Multiplies an integer by a fraction, while avoiding unnecessary
++ * overflow or loss of precision.
++ */
++#define mult_frac(x, numer, denom)(			\
++{							\
++	typeof(x) quot = (x) / (denom);			\
++	typeof(x) rem  = (x) % (denom);			\
++	(quot * (numer)) + ((rem * (numer)) / (denom));	\
++}							\
++)
++
++
+ #define _RET_IP_		(unsigned long)__builtin_return_address(0)
+ #define _THIS_IP_  ({ __label__ __here; __here: (unsigned long)&&__here; })
+ 

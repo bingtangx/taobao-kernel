@@ -1,0 +1,138 @@
+From: Robin Dong <sanbai@taobao.com>
+Subject: [PATCH 26/26] ext4: change "block" and "max_blocks" to struct ext4_map_blocks for ext4_ext_handle_uninitialized_extents
+Patch-mainline: 3.2
+
+This patch changes "block" and "max_blocks" to struct ext4_map_blocks for ext4_ext_handle_uninitialized_extents.
+
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+diff --git a/fs/ext4/extents.c b/fs/ext4/extents.c
+index d43b7c5..34ef3a0 100644
+--- a/fs/ext4/extents.c
++++ b/fs/ext4/extents.c
+@@ -3476,7 +3476,7 @@ get_reserved_cluster_alloc(struct inode *inode, ext4_lblk_t lblk_start,
+ 
+ static int
+ ext4_ext_handle_uninitialized_extents(handle_t *handle, struct inode *inode,
+-			ext4_lblk_t iblock, unsigned int max_blocks,
++			struct ext4_map_blocks *map,
+ 			struct ext4_ext_path *path, int flags,
+ 			unsigned int allocated, struct buffer_head *bh_result,
+ 			ext4_fsblk_t newblock)
+@@ -3486,19 +3486,19 @@ ext4_ext_handle_uninitialized_extents(handle_t *handle, struct inode *inode,
+ 	ext4_io_end_t *io = EXT4_I(inode)->cur_aio_dio;
+ 
+ 	ext_debug("ext4_ext_handle_uninitialized_extents: inode %lu, logical"
+-		  "block %llu, max_blocks %u, flags %d, allocated %u",
+-		  inode->i_ino, (unsigned long long)iblock, max_blocks,
++		  "block %llu, map->m_len %u, flags %d, allocated %u",
++		  inode->i_ino, (unsigned long long)map->m_lblk, map->m_len,
+ 		  flags, allocated);
+ 	ext4_ext_show_leaf(inode, path);
+ 
+-	trace_ext4_ext_handle_uninitialized_extents(inode, iblock, max_blocks,
++	trace_ext4_ext_handle_uninitialized_extents(inode, map->m_lblk, map->m_len,
+ 			allocated, newblock);
+ 
+ 	/* DIO get_block() before submit the IO, split the extent */
+ 	if (flags == EXT4_GET_BLOCKS_DIO_CREATE_EXT) {
+ 		ret = ext4_split_unwritten_extents(handle,
+-						inode, path, iblock,
+-						max_blocks, flags);
++						inode, path, map->m_lblk,
++						map->m_len, flags);
+ 		/*
+ 		 * Flag the inode(non aio case) or end_io struct (aio case)
+ 		 * that this IO needs to convertion to written when IO is
+@@ -3517,8 +3517,8 @@ ext4_ext_handle_uninitialized_extents(handle_t *handle, struct inode *inode,
+ 							path);
+ 		if (ret >= 0) {
+ 			ext4_update_inode_fsync_trans(handle, inode, 1);
+-			err = check_eofblocks_fl(handle, inode, iblock, path,
+-						 max_blocks);
++			err = check_eofblocks_fl(handle, inode, map->m_lblk, path,
++						 map->m_len);
+ 		} else
+ 			err = ret;
+ 		goto out2;
+@@ -3541,16 +3541,17 @@ ext4_ext_handle_uninitialized_extents(handle_t *handle, struct inode *inode,
+ 		 * a read from the block returns 0s.
+ 		 */
+ 		set_buffer_unwritten(bh_result);
++		map->m_flags |= EXT4_MAP_UNWRITTEN;
+ 		goto out1;
+ 	}
+ 
+ 	/* buffered write, writepage time, convert*/
+ 	ret = ext4_ext_convert_to_initialized(handle, inode,
+-						path, iblock,
+-						max_blocks);
++						path, map->m_lblk,
++						map->m_len);
+ 	if (ret >= 0) {
+ 		ext4_update_inode_fsync_trans(handle, inode, 1);
+-		err = check_eofblocks_fl(handle, inode, iblock, path, max_blocks);
++		err = check_eofblocks_fl(handle, inode, map->m_lblk, path, map->m_len);
+ 		if (err < 0)
+ 			goto out2;
+ 	}
+@@ -3561,6 +3562,7 @@ out:
+ 	} else
+ 		allocated = ret;
+ 	set_buffer_new(bh_result);
++	map->m_flags |= EXT4_MAP_NEW;
+ 	/*
+ 	 * if we allocated more blocks than requested
+ 	 * we need to make sure we unmap the extra block
+@@ -3568,11 +3570,11 @@ out:
+ 	 * unmapped later when we find the buffer_head marked
+ 	 * new.
+ 	 */
+-	if (allocated > max_blocks) {
++	if (allocated > map->m_len) {
+ 		unmap_underlying_metadata_blocks(inode->i_sb->s_bdev,
+-					newblock + max_blocks,
+-					allocated - max_blocks);
+-		allocated = max_blocks;
++					newblock + map->m_len,
++					allocated - map->m_len);
++		allocated = map->m_len;
+ 	}
+ 
+ 	/*
+@@ -3585,7 +3587,7 @@ out:
+ 	if (flags & EXT4_GET_BLOCKS_DELALLOC_RESERVE) {
+ 		unsigned int reserved_clusters;
+ 		reserved_clusters = get_reserved_cluster_alloc(inode,
+-				iblock, max_blocks);
++				map->m_lblk, map->m_len);
+ 		if (reserved_clusters)
+ 			ext4_da_update_reserve_space(inode,
+ 						     reserved_clusters,
+@@ -3594,12 +3596,15 @@ out:
+ 
+ map_out:
+ 	set_buffer_mapped(bh_result);
++	map->m_flags |= EXT4_MAP_MAPPED;
+ out1:
+-	if (allocated > max_blocks)
+-		allocated = max_blocks;
++	if (allocated > map->m_len)
++		allocated = map->m_len;
+ 	ext4_ext_show_leaf(inode, path);
+ 	bh_result->b_bdev = inode->i_sb->s_bdev;
+ 	bh_result->b_blocknr = newblock;
++	map->m_pblk = newblock;
++	map->m_len = allocated;
+ out2:
+ 	if (path) {
+ 		ext4_ext_drop_refs(path);
+@@ -3838,7 +3843,7 @@ int ext4_ext_get_blocks(handle_t *handle, struct inode *inode,
+ 				goto out;
+ 			}
+ 			ret = ext4_ext_handle_uninitialized_extents(handle,
+-					inode, map->m_lblk, map->m_len, path,
++					inode, map, path,
+ 					flags, allocated, bh_result, newblock);
+ 			return ret;
+ 		}

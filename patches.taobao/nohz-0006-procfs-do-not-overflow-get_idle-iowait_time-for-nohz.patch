@@ -1,0 +1,72 @@
+commit 2a95ea6c0d129b4568fb64e1deda16ceb20e6636
+From: Michal Hocko <mhocko@suse.cz>
+Date: Thu Dec 8 14:34:32 2011 -0800
+Subject: [PATCH 6/7] procfs: do not overflow get_{idle,iowait}_time for nohz
+Patch-mainline: 3.2
+Reference: BF#152721
+
+    procfs: do not overflow get_{idle,iowait}_time for nohz
+    
+    Since commit a25cac5198d4 ("proc: Consider NO_HZ when printing idle and
+    iowait times") we are reporting idle/io_wait time also while a CPU is
+    tickless.  We rely on get_{idle,iowait}_time functions to retrieve
+    proper data.
+    
+    These functions, however, use usecs_to_cputime to translate micro
+    seconds time to cputime64_t.  This is just an alias to usecs_to_jiffies
+    which reduces the data type from u64 to unsigned int and also checks
+    whether the given parameter overflows jiffies_to_usecs(MAX_JIFFY_OFFSET)
+    and returns MAX_JIFFY_OFFSET in that case.
+    
+    When we overflow depends on CONFIG_HZ but especially for CONFIG_HZ_300
+    it is quite low (1431649781) so we are getting MAX_JIFFY_OFFSET for
+    >3000s! until we overflow unsigned int.  Just for reference
+    CONFIG_HZ_100 has an overflow window around 20s, CONFIG_HZ_250 ~8s and
+    CONFIG_HZ_1000 ~2s.
+    
+    This results in a bug when people saw [h]top going mad reporting 100%
+    CPU usage even though there was basically no CPU load.  The reason was
+    simply that /proc/stat stopped reporting idle/io_wait changes (and
+    reported MAX_JIFFY_OFFSET) and so the only change happening was for user
+    system time.
+    
+    Let's use nsecs_to_jiffies64 instead which doesn't reduce the precision
+    to 32b type and it is much more appropriate for cumulative time values
+    (unlike usecs_to_jiffies which intended for timeout calculations).
+
+By Bosong: RHEL6 2.6.32-220.13 backported partial of this patch, which rename
+nsecs_to_jiffies64 (of this patch) to nsecs_to_jiffies (in Redhat kernel). Here
+I rename nsecs_to_jiffies64 to nsecs_to_jiffies to follow Redhat's change.
+
+Signed-off-by: Michal Hocko <mhocko@suse.cz>
+Tested-by: Artem S. Tashkinov <t.artem@mailcity.com>
+Cc: Dave Jones <davej@redhat.com>
+Cc: Arnd Bergmann <arnd@arndb.de>
+Cc: Alexey Dobriyan <adobriyan@gmail.com>
+Cc: Thomas Gleixner <tglx@linutronix.de>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.7.1.el5/fs/proc/stat.c
+===================================================================
+--- linux-2.6.32-220.7.1.el5.orig/fs/proc/stat.c	2012-03-20 14:40:21.549469222 +0800
++++ linux-2.6.32-220.7.1.el5/fs/proc/stat.c	2012-03-20 14:40:28.949505881 +0800
+@@ -33,7 +33,7 @@
+ 		idle = kstat_cpu(cpu).cpustat.idle;
+ 		idle = cputime64_add(idle, arch_idle_time(cpu));
+ 	} else
+-		idle = usecs_to_cputime(idle_time);
++		idle = nsecs_to_jiffies(1000 * idle_time);
+ 
+ 	return idle;
+ }
+@@ -47,7 +47,7 @@
+ 		/* !NO_HZ so we can rely on cpustat.iowait */
+ 		iowait = kstat_cpu(cpu).cpustat.iowait;
+ 	else
+-		iowait = usecs_to_cputime(iowait_time);
++		iowait = nsecs_to_jiffies(1000 * iowait_time);
+ 
+ 	return iowait;
+ }

@@ -1,0 +1,26 @@
+From 6f16b60690ba04cf476480a6f19b204e4b95b4a6 Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Fri, 9 Sep 2011 19:06:51 -0400
+Subject: [PATCH 18/26] ext4: enable mounting bigalloc as read/write
+Patch-mainline: 3.2
+
+Now that we have implemented all of the changes needed for bigalloc,
+we can finally enable it!
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 0619c3d..7d4ee97 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1353,7 +1353,8 @@ EXT4_INODE_BIT_FNS(state, state_flags)
+ 					 EXT4_FEATURE_RO_COMPAT_DIR_NLINK | \
+ 					 EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE | \
+ 					 EXT4_FEATURE_RO_COMPAT_BTREE_DIR |\
+-					 EXT4_FEATURE_RO_COMPAT_HUGE_FILE)
++					 EXT4_FEATURE_RO_COMPAT_HUGE_FILE |\
++					 EXT4_FEATURE_RO_COMPAT_BIGALLOC)
+ 
+ /*
+  * Default values for user and/or group using reserved blocks

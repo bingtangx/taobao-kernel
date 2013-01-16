@@ -1,0 +1,105 @@
+From: Fengguang Wu <fengguang.wu@intel.com>
+Subject: writeback: quit on wrap for .range_cyclic (write_cache_pages)
+Date: Fri Dec 16 19:10:57 CST 2011
+Patch-mainline: not-upstream-yet
+
+Convert wbc.range_cyclic to new behavior: when past EOF, abort the
+writeback of the current inode, which instructs writeback_single_inode()
+to delay it for a while if necessary.
+
+This is the right behavior for
+- sync writeback (is already so with range_whole)
+  we have scanned the inode address space, and don't care any more newly
+  dirtied pages. So shall update its i_dirtied_when and exclude it from
+  the todo list.
+- periodic writeback
+  any more newly dirtied pages may be delayed for a while.
+  This also prevents pointless IO for busy overwriters.
+- background writeback
+  irrelevant because it generally don't care the dirty timestamp.
+
+That should get rid of one inefficient IO pattern of .range_cyclic when
+writeback_index wraps, in which the submitted pages may be consisted of
+two distant ranges: submit [10000-10100], (wrap), submit [0-100].
+
+
+A mmap-wrting test case (http://code.taobao.org/p/dirbench/src/trunk/mmap_test/mmap_press.c)
+shows that it costed 805 seconds before, but only 390 seconds now.
+
+Signed-off-by: Wu Fengguang <fengguang.wu@intel.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.2.1.el5/mm/page-writeback.c
+===================================================================
+--- linux-2.6.32-220.2.1.el5.orig/mm/page-writeback.c	2012-02-24 11:52:57.056727545 +0800
++++ linux-2.6.32-220.2.1.el5/mm/page-writeback.c	2012-02-24 11:53:01.168748022 +0800
+@@ -874,45 +874,40 @@
+ 	int done = 0;
+ 	struct pagevec pvec;
+ 	int nr_pages;
+-	pgoff_t uninitialized_var(writeback_index);
+ 	pgoff_t index;
+ 	pgoff_t end;		/* Inclusive */
+ 	pgoff_t done_index;
+-	int cycled;
+ 	int range_whole = 0;
+ 	int tag;
+ 
+ 	pagevec_init(&pvec, 0);
+ 	if (wbc->range_cyclic) {
+-		writeback_index = mapping->writeback_index; /* prev offset */
+-		index = writeback_index;
+-		if (index == 0)
+-			cycled = 1;
+-		else
+-			cycled = 0;
++		index = mapping->writeback_index; /* prev offset */
+ 		end = -1;
+ 	} else {
+ 		index = wbc->range_start >> PAGE_CACHE_SHIFT;
+ 		end = wbc->range_end >> PAGE_CACHE_SHIFT;
+ 		if (wbc->range_start == 0 && wbc->range_end == LLONG_MAX)
+ 			range_whole = 1;
+-		cycled = 1; /* ignore range_cyclic tests */
+ 	}
+ 	if (wbc->sync_mode == WB_SYNC_ALL)
+ 		tag = PAGECACHE_TAG_TOWRITE;
+ 	else
+ 		tag = PAGECACHE_TAG_DIRTY;
+-retry:
++
+ 	if (wbc->sync_mode == WB_SYNC_ALL)
+ 		tag_pages_for_writeback(mapping, index, end);
++
+ 	done_index = index;
+ 	while (!done && (index <= end)) {
+ 		int i;
+ 
+ 		nr_pages = pagevec_lookup_tag(&pvec, mapping, &index, tag,
+ 			      min(end - index, (pgoff_t)PAGEVEC_SIZE-1) + 1);
+-		if (nr_pages == 0)
++		if (nr_pages == 0) {
++			done_index = 0;
+ 			break;
++		}
+ 
+ 		for (i = 0; i < nr_pages; i++) {
+ 			struct page *page = pvec.pages[i];
+@@ -1003,17 +998,6 @@
+ 		pagevec_release(&pvec);
+ 		cond_resched();
+ 	}
+-	if (!cycled && !done) {
+-		/*
+-		 * range_cyclic:
+-		 * We hit the last page and there is more work to be done: wrap
+-		 * back to the start of the file
+-		 */
+-		cycled = 1;
+-		index = 0;
+-		end = writeback_index - 1;
+-		goto retry;
+-	}
+ 	if (wbc->range_cyclic || (range_whole && wbc->nr_to_write > 0))
+ 		mapping->writeback_index = done_index;
+ 

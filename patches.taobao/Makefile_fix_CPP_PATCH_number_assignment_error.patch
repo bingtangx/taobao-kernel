@@ -1,0 +1,26 @@
+commit 838196b359d70f1f556f3666e8dea9a112ea51e1
+Author: Gao Yang <gaoyang.zyh@taobao.com>
+From:   Gao Yang <gaoyang.zyh@taobao.com> 
+Date:   Tue Mar 1 15:48:51 2011 +0800
+Subject: Makefile: fix CPP_PATCH number assignment error
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+    - redhat-kernel-source/Makefile: fix CPP_PATCH number assignment error.
+
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+Signed-off-by: Gao Yang <gaoyang.zyh@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/Makefile
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/Makefile	2011-12-13 13:40:04.760566199 +0800
++++ linux-2.6.32-220.0.0.el5/Makefile	2011-12-13 14:12:00.606066368 +0800
+@@ -360,6 +360,9 @@
+ CPP_MAJOR       := $(shell $(CPP) -dumpversion 2>&1 | cut -d'.' -f1)
+ CPP_MINOR       := $(shell $(CPP) -dumpversion 2>&1 | cut -d'.' -f2)
+ CPP_PATCH       := $(shell $(CPP) -dumpversion 2>&1 | cut -d'.' -f3)
++ifeq ($(CPP_PATCH),)
++CPP_PATCH       := 0
++endif
+ # Assumes that major, minor, and patch cannot exceed 999
+ CPP_VERS        := $(shell expr $(CPP_MAJOR) \* 1000000 + $(CPP_MINOR) \* 1000 \
+ 		   + $(CPP_PATCH))

@@ -1,0 +1,65 @@
+From: Miklos Szeredi <miklos@szeredi.hu>
+Date: Tue, 21 Feb 2012 16:09:12 +0800
+Subject: [PATCH 01/11] fix open/umount race
+Patch-mainline: not-upstream-yet
+
+nameidata_to_filp() drops nd->path or transfers it to opened
+file.  In the former case it's a Bad Idea(tm) to do mnt_drop_write()
+on nd->path.mnt, since we might race with umount and vfsmount in
+question might be gone already.
+
+Fix: don't drop it, then...  IOW, have nameidata_to_filp() grab nd->path
+in case it transfers it to file and do path_drop() in callers.  After
+they are through with accessing nd->path...
+
+Reported-by: Miklos Szeredi <miklos@szeredi.hu>
+Signed-off-by: Al Viro <viro@zeniv.linux.org.uk>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ fs/namei.c |    2 ++
+ fs/open.c  |    6 +++---
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/fs/namei.c b/fs/namei.c
+index 11579f0..80e0784 100644
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -1966,6 +1966,7 @@ do_last:
+ 		}
+ 		filp = nameidata_to_filp(&nd);
+ 		mnt_drop_write(nd.path.mnt);
++		path_put(&nd.path);
+ 		if (nd.root.mnt)
+ 			path_put(&nd.root);
+ 		if (!IS_ERR(filp)) {
+@@ -2055,6 +2056,7 @@ ok:
+ 		mnt_drop_write(nd.path.mnt);
+ 	if (nd.root.mnt)
+ 		path_put(&nd.root);
++	path_put(&nd.path);
+ 	return filp;
+ 
+ exit_mutex_unlock:
+diff --git a/fs/open.c b/fs/open.c
+index 87503b4..523ae5d 100644
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -777,11 +777,11 @@ struct file *nameidata_to_filp(struct nameidata *nd)
+ 	/* Pick up the filp from the open intent */
+ 	filp = nd->intent.open.file;
+ 	/* Has the filesystem initialised the file for us? */
+-	if (filp->f_path.dentry == NULL)
++	if (filp->f_path.dentry == NULL) {
++		path_get(&nd->path);
+ 		filp = __dentry_open(nd->path.dentry, nd->path.mnt, filp,
+ 				     NULL, cred);
+-	else
+-		path_put(&nd->path);
++	}
+ 	return filp;
+ }
+ 
+-- 
+1.7.3.2
+

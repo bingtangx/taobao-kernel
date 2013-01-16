@@ -1,0 +1,164 @@
+From: Robin Dong <sanbai@taobao.com>
+Date: Fri, 27 Dec 2012 17:37:10 +0800
+Subject: [PATCH] ext4: Initialize fsync transaction ids in ext4_new_inode()
+Patch-mainline: 3.7.0
+
+    commit f7ad6d2e9201a6e1c9ee6530a291452eb695feb8
+
+    The following BUG can occur when an inode which is getting freed when
+    it still has dirty pages outstanding, and it gets deleted (in this
+    because it was the target of a rename).  In ordered mode, we need to
+    make sure the data pages are written just in case we crash before the
+    rename (or unlink) is committed.  If the inode is being freed then
+    when we try to igrab the inode, we end up tripping the BUG_ON at
+    fs/ext4/page-io.c:146.
+    
+    To solve this problem, we need to keep track of the number of io
+    callbacks which are pending, and avoid destroying the inode until they
+    have all been completed.  That way we don't have to bump the inode
+    count to keep the inode from being destroyed; an approach which
+    doesn't work because the count could have already been dropped down to
+    zero before the inode writeback has started (at which point we're not
+    allowed to bump the count back up to 1, since it's already started
+    getting freed).
+    
+    Thanks to Dave Chinner for suggesting this approach, which is also
+    used by XFS.
+    
+      kernel BUG at /scratch_space/linux-2.6/fs/ext4/page-io.c:146!
+      Call Trace:
+       [<ffffffff811075b1>] ext4_bio_write_page+0x172/0x307
+       [<ffffffff811033a7>] mpage_da_submit_io+0x2f9/0x37b
+       [<ffffffff811068d7>] mpage_da_map_and_submit+0x2cc/0x2e2
+       [<ffffffff811069b3>] mpage_add_bh_to_extent+0xc6/0xd5
+       [<ffffffff81106c66>] write_cache_pages_da+0x2a4/0x3ac
+       [<ffffffff81107044>] ext4_da_writepages+0x2d6/0x44d
+       [<ffffffff81087910>] do_writepages+0x1c/0x25
+       [<ffffffff810810a4>] __filemap_fdatawrite_range+0x4b/0x4d
+       [<ffffffff810815f5>] filemap_fdatawrite_range+0xe/0x10
+       [<ffffffff81122a2e>] jbd2_journal_begin_ordered_truncate+0x7b/0xa2
+       [<ffffffff8110615d>] ext4_evict_inode+0x57/0x24c
+       [<ffffffff810c14a3>] evict+0x22/0x92
+       [<ffffffff810c1a3d>] iput+0x212/0x249
+       [<ffffffff810bdf16>] dentry_iput+0xa1/0xb9
+       [<ffffffff810bdf6b>] d_kill+0x3d/0x5d
+       [<ffffffff810be613>] dput+0x13a/0x147
+       [<ffffffff810b990d>] sys_renameat+0x1b5/0x258
+       [<ffffffff81145f71>] ? _atomic_dec_and_lock+0x2d/0x4c
+       [<ffffffff810b2950>] ? cp_new_stat+0xde/0xea
+       [<ffffffff810b29c1>] ? sys_newlstat+0x2d/0x38
+       [<ffffffff810b99c6>] sys_rename+0x16/0x18
+       [<ffffffff81002a2b>] system_call_fastpath+0x16/0x1b
+
+Changes for Taobao:
+    1. add code to fs/ext4/inode.c instead of fs/ext4/page-io.c
+    2. omit the change of ext4_end_bio()
+
+This bug can be triggered by tool "stress" very soon:
+    stress --cpu 2 --io 2 --vm 1 --vm-bytes 128M --hdd 2 --timeout 1d
+    
+Reported-by: Nick Bowler <nbowler@elliptictech.com>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Tested-by: Nick Bowler <nbowler@elliptictech.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.23.1.el6/fs/ext4/ext4.h
+===================================================================
+--- linux-2.6.32-220.23.1.el6.orig/fs/ext4/ext4.h
++++ linux-2.6.32-220.23.1.el6/fs/ext4/ext4.h
+@@ -861,6 +861,7 @@ struct ext4_inode_info {
+ 	/* current io_end structure for async DIO write*/
+ 	ext4_io_end_t *cur_aio_dio;
+ 	atomic_t i_aiodio_unwritten; /* Number of inflight conversions pending */
++	atomic_t i_ioend_count;	/* Number of outstanding io_end structs */
+ 	struct mutex i_aio_mutex; /* big hammer for unaligned AIO */
+ 
+ 	/*
+@@ -2240,6 +2241,10 @@ extern wait_queue_head_t aio_wq[];
+ #define to_aio_wq(v) (&aio_wq[((unsigned long)v) % WQ_HASH_SZ])
+ extern void ext4_aio_wait(struct inode *inode);
+ 
++extern wait_queue_head_t ioend_wq[];
++#define to_ioend_wq(v)	(&ioend_wq[((unsigned long)v) % WQ_HASH_SZ])
++extern void ext4_ioend_wait(struct inode *inode);
++
+ #endif	/* __KERNEL__ */
+ 
+ #include "ext4_extents.h"
+Index: linux-2.6.32-220.23.1.el6/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el6.orig/fs/ext4/inode.c
++++ linux-2.6.32-220.23.1.el6/fs/ext4/inode.c
+@@ -3951,10 +3951,23 @@ out:
+ 	return ret;
+ }
+ 
++void ext4_ioend_wait(struct inode *inode)
++{
++	wait_queue_head_t *wq = to_ioend_wq(inode);
++
++	wait_event(*wq, (atomic_read(&EXT4_I(inode)->i_ioend_count) == 0));
++}
++
+ static void ext4_free_io_end(ext4_io_end_t *io)
+ {
++	wait_queue_head_t *wq;
++
+ 	BUG_ON(!io);
+-	iput(io->inode);
++	wq = to_ioend_wq(io->inode);
++	if (atomic_dec_and_test(&EXT4_I(io->inode)->i_ioend_count) &&
++			waitqueue_active(wq))
++		wake_up_all(wq);
++
+ 	kfree(io);
+ }
+ static void dump_aio_dio_list(struct inode * inode)
+@@ -4116,7 +4129,7 @@ static ext4_io_end_t *ext4_init_io_end (
+ 	io = kmalloc(sizeof(*io), GFP_NOFS);
+ 
+ 	if (io) {
+-		igrab(inode);
++		atomic_inc(&EXT4_I(inode)->i_ioend_count);
+ 		io->inode = inode;
+ 		io->flag = 0;
+ 		io->offset = 0;
+Index: linux-2.6.32-220.23.1.el6/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.23.1.el6.orig/fs/ext4/super.c
++++ linux-2.6.32-220.23.1.el6/fs/ext4/super.c
+@@ -79,6 +79,7 @@ static void ext4_unregister_li_request(s
+ static void ext4_clear_request_list(void);
+ 
+ wait_queue_head_t aio_wq[WQ_HASH_SZ];
++wait_queue_head_t ioend_wq[WQ_HASH_SZ];
+ 
+ ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
+ 			       struct ext4_group_desc *bg)
+@@ -802,12 +803,14 @@ static struct inode *ext4_alloc_inode(st
+ 	ei->i_sync_tid = 0;
+ 	ei->i_datasync_tid = 0;
+ 	atomic_set(&ei->i_aiodio_unwritten, 0);
++	atomic_set(&ei->i_ioend_count, 0);
+ 
+ 	return &ei->vfs_inode;
+ }
+ 
+ static void ext4_destroy_inode(struct inode *inode)
+ {
++	ext4_ioend_wait(inode);
+ 	if (!list_empty(&(EXT4_I(inode)->i_orphan))) {
+ 		ext4_msg(inode->i_sb, KERN_ERR,
+ 			 "Inode %lu (%p): orphan list check failed!",
+@@ -4939,8 +4942,10 @@ static int __init init_ext4_fs(void)
+ 	int i;
+ 
+ 	ext4_check_flag_values();
+-	for (i = 0; i < WQ_HASH_SZ; i++)
++	for (i = 0; i < WQ_HASH_SZ; i++) {
+ 		init_waitqueue_head(&aio_wq[i]);
++		init_waitqueue_head(&ioend_wq[i]);
++	}
+ 
+ 	err = init_ext4_system_zone();
+ 	if (err)

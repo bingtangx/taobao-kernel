@@ -1,0 +1,112 @@
+From:   Mike Waychison <mikew@google.com>
+Date:   Mon Apr 25 13:48:51 2011 +0800
+Subject: [PATCH 16/24] oops: pass pt_regs along to oops_exit.
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+Signed-off-by: Mike Waychison <mikew@google.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/arch/arm/kernel/traps.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/arch/arm/kernel/traps.c	2011-12-21 22:40:50.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/arch/arm/kernel/traps.c	2011-12-21 22:41:46.000000000 +0800
+@@ -263,7 +263,7 @@
+ 	bust_spinlocks(0);
+ 	add_taint(TAINT_DIE);
+ 	spin_unlock_irq(&die_lock);
+-	oops_exit();
++	oops_exit(regs);
+ 
+ 	if (in_interrupt())
+ 		panic("Fatal exception in interrupt");
+Index: linux-2.6.32-220.0.0.el5/arch/parisc/kernel/traps.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/arch/parisc/kernel/traps.c	2011-12-21 22:40:50.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/arch/parisc/kernel/traps.c	2011-12-21 22:41:46.000000000 +0800
+@@ -294,7 +294,7 @@
+ 		panic("Fatal exception");
+ 	}
+ 
+-	oops_exit();
++	oops_exit(regs);
+ 	do_exit(SIGSEGV);
+ }
+ 
+Index: linux-2.6.32-220.0.0.el5/arch/powerpc/kernel/traps.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/arch/powerpc/kernel/traps.c	2011-12-21 22:40:50.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/arch/powerpc/kernel/traps.c	2011-12-21 22:41:46.000000000 +0800
+@@ -168,7 +168,7 @@
+ 	if (panic_on_oops)
+ 		panic("Fatal exception");
+ 
+-	oops_exit();
++	oops_exit(regs);
+ 	do_exit(err);
+ 
+ 	return 0;
+Index: linux-2.6.32-220.0.0.el5/arch/s390/kernel/traps.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/arch/s390/kernel/traps.c	2011-12-21 22:40:50.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/arch/s390/kernel/traps.c	2011-12-21 22:41:46.000000000 +0800
+@@ -274,7 +274,7 @@
+ 		panic("Fatal exception in interrupt");
+ 	if (panic_on_oops)
+ 		panic("Fatal exception: panic_on_oops");
+-	oops_exit();
++	oops_exit(regs);
+ 	do_exit(SIGSEGV);
+ }
+ 
+Index: linux-2.6.32-220.0.0.el5/arch/sh/kernel/traps_32.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/arch/sh/kernel/traps_32.c	2011-12-21 22:40:50.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/arch/sh/kernel/traps_32.c	2011-12-21 22:41:46.000000000 +0800
+@@ -181,7 +181,7 @@
+ 	bust_spinlocks(0);
+ 	add_taint(TAINT_DIE);
+ 	spin_unlock_irq(&die_lock);
+-	oops_exit();
++	oops_exit(regs);
+ 
+ 	if (kexec_should_crash(current))
+ 		crash_kexec(regs);
+Index: linux-2.6.32-220.0.0.el5/arch/x86/kernel/dumpstack.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/arch/x86/kernel/dumpstack.c	2011-12-21 22:40:50.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/arch/x86/kernel/dumpstack.c	2011-12-21 22:41:46.000000000 +0800
+@@ -249,7 +249,7 @@
+ 		/* Nest count reaches zero, release the lock. */
+ 		__raw_spin_unlock(&die_lock);
+ 	raw_local_irq_restore(flags);
+-	oops_exit();
++	oops_exit(regs);
+ 
+ 	if (!signr)
+ 		return;
+Index: linux-2.6.32-220.0.0.el5/include/linux/kernel.h
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/include/linux/kernel.h	2011-12-21 22:40:51.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/include/linux/kernel.h	2011-12-21 22:41:46.000000000 +0800
+@@ -204,7 +204,7 @@
+ NORET_TYPE void panic(const char * fmt, ...)
+ 	__attribute__ ((NORET_AND format (printf, 1, 2))) __cold;
+ extern void oops_enter(void);
+-extern void oops_exit(void);
++extern void oops_exit(struct pt_regs *);
+ extern int oops_may_print(void);
+ NORET_TYPE void do_exit(long error_code)
+ 	ATTRIB_NORET;
+Index: linux-2.6.32-220.0.0.el5/kernel/panic.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/kernel/panic.c	2011-12-21 22:40:49.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/kernel/panic.c	2011-12-21 22:41:46.000000000 +0800
+@@ -365,7 +365,7 @@
+  * Called when the architecture exits its oops handler, after printing
+  * everything.
+  */
+-void oops_exit(void)
++void oops_exit(struct pt_regs *regs)
+ {
+ 	do_oops_enter_exit();
+ 	print_oops_end_marker();

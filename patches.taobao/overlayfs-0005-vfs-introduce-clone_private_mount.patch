@@ -1,0 +1,62 @@
+From: Miklos Szeredi <mszeredi@suse.cz>
+Date: Tue, 21 Feb 2012 16:13:12 +0800
+Subject: [PATCH 5/11] vfs: introduce clone_private_mount()
+Patch-mainline: in house patch
+
+Overlayfs needs a private clone of the mount, so create a function for
+this and export to modules.
+
+Signed-off-by: Miklos Szeredi <mszeredi@suse.cz>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ fs/namespace.c        |   18 ++++++++++++++++++
+ include/linux/mount.h |    3 +++
+ 2 files changed, 21 insertions(+), 0 deletions(-)
+
+diff --git a/fs/namespace.c b/fs/namespace.c
+index 5cbd530..1d8aec1 100644
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -1274,6 +1274,24 @@ void drop_collected_mounts(struct vfsmount *mnt)
+ 	release_mounts(&umount_list);
+ }
+ 
++struct vfsmount *clone_private_mount(struct path *path)
++{
++	struct vfsmount *old_mnt = path->mnt;
++	struct vfsmount *new_mnt;
++
++	if (IS_MNT_UNBINDABLE(old_mnt))
++		return ERR_PTR(-EINVAL);
++
++	down_read(&namespace_sem);
++	new_mnt = clone_mnt(old_mnt, path->dentry, CL_PRIVATE);
++	up_read(&namespace_sem);
++	if (!new_mnt)
++		return ERR_PTR(-ENOMEM);
++
++	return new_mnt;
++}
++EXPORT_SYMBOL_GPL(clone_private_mount);
++
+ static void cleanup_group_ids(struct vfsmount *mnt, struct vfsmount *end)
+ {
+ 	struct vfsmount *p;
+diff --git a/include/linux/mount.h b/include/linux/mount.h
+index be60126..a337a0a 100644
+--- a/include/linux/mount.h
++++ b/include/linux/mount.h
+@@ -111,6 +111,9 @@ static inline void mntput(struct vfsmount *mnt)
+ extern struct vfsmount *do_kern_mount(const char *fstype, int flags,
+ 				      const char *name, void *data);
+ 
++struct path;
++extern struct vfsmount *clone_private_mount(struct path *path);
++
+ struct file_system_type;
+ extern struct vfsmount *vfs_kern_mount(struct file_system_type *type,
+ 				      int flags, const char *name,
+-- 
+1.7.3.2
+

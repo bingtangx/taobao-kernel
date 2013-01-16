@@ -1,0 +1,29 @@
+From: Vivek Goyal <vgoyal@redhat.com>
+Subject: CFQ: Avoid async write starvation by allowing one dispatch at a time.
+Patch-mainline: Will be committed soon.
+References: 
+
+Acked-by: 
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+
+Index: linux-2.6.32-220.7.1.el5/block/cfq-iosched.c
+===================================================================
+--- linux-2.6.32-220.7.1.el5.orig/block/cfq-iosched.c	2012-03-09 12:12:15.778332380 +0800
++++ linux-2.6.32-220.7.1.el5/block/cfq-iosched.c	2012-03-09 12:13:39.926749654 +0800
+@@ -3303,8 +3303,15 @@
+ 	 * if the new request is sync, but the currently running queue is
+ 	 * not, let the sync request have priority.
+ 	 */
+-	if (rq_is_sync(rq) && !cfq_cfqq_sync(cfqq))
++	if (rq_is_sync(rq) && !cfq_cfqq_sync(cfqq)) {
++		/*
++		 * Allow atleast one dispatch otherwise this can repeat
++		 * and writes can be starved completely
++		 */
++		if (!cfqq->slice_dispatch)
++			return false;
+ 		return true;
++	}
+ 
+ 	if (new_cfqq->cfqg != cfqq->cfqg)
+ 		return false;

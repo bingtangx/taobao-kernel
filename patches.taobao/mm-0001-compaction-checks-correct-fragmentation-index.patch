@@ -1,0 +1,51 @@
+From a582a738c763e106f47eab24b8146c698a9c700b Mon Sep 17 00:00:00 2001
+From: Shaohua Li <shaohua.li@intel.com>
+Date: Wed, 15 Jun 2011 15:08:49 -0700
+Subject: [PATCH] compaction: checks correct fragmentation index
+Patch-mainline: 3.0
+
+fragmentation_index() returns -1000 when the allocation might succeed
+This doesn't match the comment and code in compaction_suitable(). I
+thought compaction_suitable should return COMPACT_PARTIAL in -1000
+case, because in this case allocation could succeed depending on
+watermarks.
+
+The impact of this is that compaction starts and compact_finished() is
+called which rechecks the watermarks and the free lists.  It should have
+the same result in that compaction should not start but is more expensive.
+
+Acked-by: Mel Gorman <mel@csn.ul.ie>
+Signed-off-by: Shaohua Li <shaohua.li@intel.com>
+Cc: Minchan Kim <minchan.kim@gmail.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ mm/compaction.c |    6 ++++--
+ 1 files changed, 4 insertions(+), 2 deletions(-)
+
+Index: linux-2.6.32-220.13.1.el5/mm/compaction.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/mm/compaction.c	2012-04-19 17:24:48.906452700 +0800
++++ linux-2.6.32-220.13.1.el5/mm/compaction.c	2012-04-19 17:26:57.799091854 +0800
+@@ -586,8 +586,8 @@
+ 		 * fragmentation index determines if allocation failures are
+ 		 * due to low memory or external fragmentation
+ 		 *
+-		 * index of -1 implies allocations might succeed depending
+-		 * 	on watermarks
++		 * index of -1000 implies allocations might succeed depending
++		 * on watermarks
+ 		 * index towards 0 implies failure is due to lack of memory
+ 		 * index towards 1000 implies failure is due to fragmentation
+ 		 *
+@@ -597,7 +597,8 @@
+ 		if (fragindex >= 0 && fragindex <= sysctl_extfrag_threshold)
+ 			continue;
+ 
+-		if (fragindex == -1 && zone_watermark_ok(zone, order, watermark, 0, 0)) {
++		if (fragindex == -1000 && zone_watermark_ok(zone, order, watermark,
++		    0, 0)) {
+ 			rc = COMPACT_PARTIAL;
+ 			break;
+ 		}

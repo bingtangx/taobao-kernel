@@ -1,0 +1,156 @@
+From: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Subject: [PATCH 1/3] sched: Cure load average vs NO_HZ woes
+Patch-mainline: v2.6.34-rc4
+References: 
+
+    commit 74f5187ac873042f502227701ed1727e7c5fbfa9
+
+    Chase reported that due to us decrementing calc_load_task prematurely
+    (before the next LOAD_FREQ sample), the load average could be scewed
+    by as much as the number of CPUs in the machine.
+
+    This patch, based on Chase's patch, cures the problem by keeping the
+    delta of the CPU going into NO_HZ idle separately and folding that in
+    on the next LOAD_FREQ update.
+
+    This restores the balance and we get strict LOAD_FREQ period samples.
+
+Signed-off-by: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Acked-by: Chase Douglas <chase.douglas@canonical.com>
+LKML-Reference: <1271934490.1776.343.camel@laptop>
+Signed-off-by: Ingo Molnar <mingo@elte.hu>
+Signed-off-by: Mu Ming <muming.wq@taobao.com>
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+
+Index: linux-2.6.32-220.23.1.el5/kernel/sched.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/kernel/sched.c	2012-06-20 00:07:23.638999729 +0800
++++ linux-2.6.32-220.23.1.el5/kernel/sched.c	2012-06-20 00:14:42.641176629 +0800
+@@ -1943,7 +1943,7 @@
+ }
+ #endif
+ 
+-static void calc_load_account_active(struct rq *this_rq);
++static void calc_load_account_idle(struct rq *this_rq);
+ static void update_sysctl(void);
+ static void update_cpu_load(struct rq *this_rq);
+ static int get_update_sysctl_factor(void);
+@@ -3138,6 +3138,61 @@
+ unsigned long avenrun[3];
+ EXPORT_SYMBOL(avenrun);
+ 
++static long calc_load_fold_active(struct rq *this_rq)
++{
++	long nr_active, delta = 0;
++	
++	nr_active = this_rq->nr_running;
++	nr_active += (long) this_rq->nr_uninterruptible;
++
++	if (nr_active != this_rq->calc_load_active) {
++		delta = nr_active - this_rq->calc_load_active;
++		this_rq->calc_load_active = nr_active;
++	}
++
++	return delta;
++}
++
++#ifdef CONFIG_NO_HZ
++/*
++ * For NO_HZ we delay the active fold to the next LOAD_FREQ update.
++ * 
++ * When making the ILB scale, we should try to pull this in as well.
++ */
++static atomic_long_t calc_load_tasks_idle;
++
++static void calc_load_account_idle(struct rq *this_rq)
++{
++	long delta;
++	
++	delta = calc_load_fold_active(this_rq);
++	if (delta)
++		atomic_long_add(delta, &calc_load_tasks_idle);
++}
++
++static long calc_load_fold_idle(void)
++{
++	long delta = 0;
++
++	/*
++	 * Its got a race, we don't care...
++	 */
++	if (atomic_long_read(&calc_load_tasks_idle))
++		delta = atomic_long_xchg(&calc_load_tasks_idle, 0);
++
++	return delta;
++}
++#else
++static void calc_load_account_idle(struct rq *this_rq)
++{
++}
++
++static inline long calc_load_fold_idle(void)
++{
++	return 0;
++}
++#endif
++
+ /**
+  * get_avenrun - get the load average array
+  * @loads:	pointer to dest load array
+@@ -3184,20 +3239,21 @@
+ }
+ 
+ /*
+- * Either called from update_cpu_load() or from a cpu going idle
++ * Called from update_cpu_load() to periodically update this CPU's
++ * active count.
+  */
+ static void calc_load_account_active(struct rq *this_rq)
+ {
+-	long nr_active, delta;
++	long delta;
+ 
+-	nr_active = this_rq->nr_running;
+-	nr_active += (long) this_rq->nr_uninterruptible;
+-
+-	if (nr_active != this_rq->calc_load_active) {
+-		delta = nr_active - this_rq->calc_load_active;
+-		this_rq->calc_load_active = nr_active;
++	if (time_before(jiffies, this_rq->calc_load_update))
++		return;
++	delta = calc_load_fold_active(this_rq);
++	delta += calc_load_fold_idle();
++	if (delta)
+ 		atomic_long_add(delta, &calc_load_tasks);
+-	}
++
++	this_rq->calc_load_update += LOAD_FREQ;
+ }
+ 
+ /*
+@@ -3314,10 +3370,7 @@
+ {
+ 	update_cpu_load(this_rq);
+ 
+-	if (time_after_eq(jiffies, this_rq->calc_load_update)) {
+-		this_rq->calc_load_update += LOAD_FREQ;
+-		calc_load_account_active(this_rq);
+-	}
++	calc_load_account_active(this_rq);
+ }
+ 
+ #ifdef CONFIG_SMP
+Index: linux-2.6.32-220.23.1.el5/kernel/sched_idletask.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/kernel/sched_idletask.c	2012-06-20 00:04:49.482235306 +0800
++++ linux-2.6.32-220.23.1.el5/kernel/sched_idletask.c	2012-06-20 00:14:42.641176629 +0800
+@@ -23,8 +23,7 @@
+ static struct task_struct *pick_next_task_idle(struct rq *rq)
+ {
+ 	schedstat_inc(rq, sched_goidle);
+-	/* adjust the active tasks as we might go into a long sleep */
+-	calc_load_account_active(rq);
++	calc_load_account_idle(rq);
+ 	return rq->idle;
+ }
+ 

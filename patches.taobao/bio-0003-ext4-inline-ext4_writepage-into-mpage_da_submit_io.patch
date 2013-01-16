@@ -1,0 +1,157 @@
+From cb20d5188366f04d96d2e07b1240cc92170ade40 Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Wed, 27 Oct 2010 21:30:09 -0400
+Subject: [PATCH 3/4] ext4: inline ext4_writepage() into mpage_da_submit_io()
+Patch-mainline: 2.6.37
+
+As a prepratory step to switching to bio_submit, inline
+ext4_writepage() into mpage_da_submit() and then simplify things a
+bit.  This makes it clearer what mpage_da_submit needs to do.
+
+Also, move the ClearPageChecked(page) call into
+__ext4_journalled_writepage(), as a minor bit of cleanup refactoring.
+
+This also allows us to pull i_size_read() and
+ext4_should_journal_data() out of the loop, which should be a very
+minor CPU savings.
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 24aa94f..06efd69 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -57,7 +57,10 @@ static inline int ext4_begin_ordered_truncate(struct inode *inode,
+ }
+ 
+ static void ext4_invalidatepage(struct page *page, unsigned long offset);
+-static int ext4_writepage(struct page *page, struct writeback_control *wbc);
++static int noalloc_get_block_write(struct inode *inode, sector_t iblock,
++				   struct buffer_head *bh_result, int create);
++static int __ext4_journalled_writepage(struct page *page, unsigned int len);
++static int ext4_bh_delay_or_unwritten(handle_t *handle, struct buffer_head *bh);
+ 
+ /*
+  * Test whether an inode is a fast symlink.
+@@ -2084,12 +2087,15 @@ static void ext4_da_page_release_reservation(struct page *page,
+  */
+ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ {
+-	long pages_skipped;
+ 	struct pagevec pvec;
+ 	unsigned long index, end;
+ 	int ret = 0, err, nr_pages, i;
+ 	struct inode *inode = mpd->inode;
+ 	struct address_space *mapping = inode->i_mapping;
++	loff_t size = i_size_read(inode);
++	unsigned int len;
++	struct buffer_head *page_bufs = NULL;
++	int journal_data = ext4_should_journal_data(inode);
+ 
+ 	BUG_ON(mpd->next_page <= mpd->first_page);
+ 	/*
+@@ -2107,28 +2113,64 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd)
+ 		if (nr_pages == 0)
+ 			break;
+ 		for (i = 0; i < nr_pages; i++) {
++			int commit_write = 0;
+ 			struct page *page = pvec.pages[i];
+ 
+ 			index = page->index;
+ 			if (index > end)
+ 				break;
++
++			if (index == size >> PAGE_CACHE_SHIFT)
++				len = size & ~PAGE_CACHE_MASK;
++			else
++				len = PAGE_CACHE_SIZE;
+ 			index++;
+ 
+ 			BUG_ON(!PageLocked(page));
+ 			BUG_ON(PageWriteback(page));
+ 
+-			pages_skipped = mpd->wbc->pages_skipped;
+-			err = ext4_writepage(page, mpd->wbc);
+-			if (!err && (pages_skipped == mpd->wbc->pages_skipped))
++			/*
++			 * If the page does not have buffers (for
++			 * whatever reason), try to create them using
++			 * block_prepare_write.  If this fails,
++			 * redirty the page and move on.
++			 */
++			if (!page_has_buffers(page)) {
++				if (block_prepare_write(page, 0, len,
++						noalloc_get_block_write)) {
++				redirty_page:
++					redirty_page_for_writepage(mpd->wbc,
++								   page);
++					unlock_page(page);
++					continue;
++				}
++				commit_write = 1;
++			}
++			page_bufs = page_buffers(page);
++			if (walk_page_buffers(NULL, page_bufs, 0, len, NULL,
++					      ext4_bh_delay_or_unwritten)) {
+ 				/*
+-				 * have successfully written the page
+-				 * without skipping the same
++				 * We couldn't do block allocation for
++				 * some reason.
+ 				 */
++				goto redirty_page;
++			}
++
++			if (commit_write)
++				/* mark the buffer_heads as dirty & uptodate */
++				block_commit_write(page, 0, len);
++
++			if (journal_data && PageChecked(page))
++				err = __ext4_journalled_writepage(page, len);
++			else
++				err = block_write_full_page(page,
++					    noalloc_get_block_write, mpd->wbc);
++
++			if (!err)
+ 				mpd->pages_written++;
+ 			/*
+ 			 * In error case, we have to continue because
+ 			 * remaining pages are still locked
+-			 * XXX: unlock and re-dirty them?
+ 			 */
+ 			if (ret == 0)
+ 				ret = err;
+@@ -2738,7 +2780,6 @@ static int bput_one(handle_t *handle, struct buffer_head *bh)
+ }
+ 
+ static int __ext4_journalled_writepage(struct page *page,
+-				       struct writeback_control *wbc,
+ 				       unsigned int len)
+ {
+ 	struct address_space *mapping = page->mapping;
+@@ -2748,6 +2789,7 @@ static int __ext4_journalled_writepage(struct page *page,
+ 	int ret = 0;
+ 	int err;
+ 
++	ClearPageChecked(page);
+ 	page_bufs = page_buffers(page);
+ 	BUG_ON(!page_bufs);
+ 	walk_page_buffers(handle, page_bufs, 0, len, NULL, bget_one);
+@@ -2867,14 +2909,12 @@ static int ext4_writepage(struct page *page,
+ 		/* now mark the buffer_heads as dirty and uptodate */
+ 		block_commit_write(page, 0, len);
+ 
+-	if (PageChecked(page) && ext4_should_journal_data(inode)) {
++	if (PageChecked(page) && ext4_should_journal_data(inode))
+ 		/*
+ 		 * It's mmapped pagecache.  Add buffers and journal it.  There
+ 		 * doesn't seem much point in redirtying the page here.
+ 		 */
+-		ClearPageChecked(page);
+-		return __ext4_journalled_writepage(page, wbc, len);
+-	}
++		return __ext4_journalled_writepage(page, len);
+ 
+ 	if (test_opt(inode->i_sb, NOBH) && ext4_should_writeback_data(inode))
+ 		ret = nobh_writepage(page, noalloc_get_block_write, wbc);

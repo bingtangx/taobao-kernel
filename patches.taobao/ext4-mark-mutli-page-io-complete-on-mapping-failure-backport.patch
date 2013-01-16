@@ -1,0 +1,46 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH] ext4: mark multi-page IO complete on mapping failure
+Patch-mainline: v2.6.38-rc5-15-ge0fd9b9
+References: e0fd9b90765
+
+In mpage_da_map_and_submit(), if we have a delayed block
+allocation failure from ext4_map_blocks(), we need to mark
+the IO as complete, by setting
+
+  mpd->io_done = 1;
+
+Otherwise, we could end up submitting the pages in an outer
+loop; since they are unlocked on mapping failure in
+ext4_da_block_invalidatepages(), this will cause a bug check
+in mpage_da_submit_io().
+
+I tested this by injected failures into ext4_map_blocks().
+Without this patch, a simple fsstress run will bug check;
+with the patch, it works fine.
+
+[Notes from Zheng Liu]
+We need to backport this patch to fix a bug in our product system temporarily
+because it has been backported by redhat in 2.6.32-279.  Thus, we should remove
+this patch after we upgrade to 2.6.32-279 in product branch.
+
+Signed-off-by: Curt Wohlgemuth <curtw@google.com>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+Acked-by: 
+
+---
+ fs/ext4/inode.c |    3 +++
+ 1 file changed, 3 insertions(+)
+
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -2469,6 +2469,9 @@ static void mpage_da_map_and_submit(stru
+ 		/* invalidate all the pages */
+ 		ext4_da_block_invalidatepages(mpd, next,
+ 				mpd->b_size >> mpd->inode->i_blkbits);
++
++		/* Mark this page range as having been completed */
++		mpd->io_done = 1;
+ 		return;
+ 	}
+ 	BUG_ON(blks == 0);

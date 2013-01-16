@@ -1,0 +1,48 @@
+From: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Subject: [PATCH] sched: Add irq_{enter,exit}() to scheduler_ipi()
+Patch-mainline: v3.0-rc7-6-gc5d753a
+References: 
+
+Commit ID: c5d753a55ac92e09816d410cd17093813f1a904b
+
+Ensure scheduler_ipi() calls irq_{enter,exit} when it does some actual
+work. Traditionally we never did any actual work from the resched IPI
+and all magic happened in the return from interrupt path.
+
+Now that we do do some work, we need to ensure irq_{enter,exit} are
+called so that we don't confuse things.
+
+This affects things like timekeeping, NO_HZ and RCU, basically
+everything with a hook in irq_enter/exit.
+
+Explicit examples of things going wrong are:
+
+  sched_clock_cpu() -- has a callback when leaving NO_HZ state to take
+                    a new reading from GTOD and TSC. Without this
+                    callback, time is stuck in the past.
+
+  RCU -- needs in_irq() to work in order to avoid some nasty deadlocks
+
+Signed-off-by: Peter Zijlstra <a.p.zijlstra@chello.nl>
+Signed-off-by: Paul E. McKenney <paulmck@linux.vnet.ibm.com>
+Signed-off-by: Charles Wang <muming.wq@taobao.com>
+
+Index: linux-2.6.32-279.2.1.el5/kernel/sched.c
+===================================================================
+--- linux-2.6.32-279.2.1.el5.orig/kernel/sched.c
++++ linux-2.6.32-279.2.1.el5/kernel/sched.c
+@@ -2504,11 +2504,14 @@ void scheduler_ipi(void)
+ {
+ 	if (!got_nohz_idle_kick())
+ 		return;
++
++	irq_enter();
+ 	/*
+ 	 * Check if someone kicked us for doing the nohz idle load balance.
+ 	 */
+ 	if (unlikely(got_nohz_idle_kick() && !need_resched()))
+ 		raise_softirq_irqoff(SCHED_SOFTIRQ);
++	irq_exit();
+ }
+ 
+ /***

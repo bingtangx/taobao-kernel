@@ -1,0 +1,56 @@
+From 3212a80a58062056bb922811071062be58d8fee1 Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Fri, 9 Sep 2011 18:46:51 -0400
+Subject: [PATCH 08/26] ext4: convert block group-relative offsets to use clusters
+Patch-mainline: 3.2
+
+Certain parts of the ext4 code base, primarily in mballoc.c, use a
+block group number and offset from the beginning of the block group.
+This offset is invariably used to index into the allocation bitmap, so
+change the offset to be denominated in units of clusters.
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+diff --git a/fs/ext4/balloc.c b/fs/ext4/balloc.c
+index 512f594..c97e2ee 100644
+--- a/fs/ext4/balloc.c
++++ b/fs/ext4/balloc.c
+@@ -26,7 +26,8 @@
+  */
+ 
+ /*
+- * Calculate the block group number and offset, given a block number
++ * Calculate the block group number and offset into the block/cluster
++ * allocation bitmap, given a block number
+  */
+ void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
+ 		ext4_group_t *blockgrpp, ext4_grpblk_t *offsetp)
+@@ -35,7 +36,8 @@ void ext4_get_group_no_and_offset(struct super_block *sb, ext4_fsblk_t blocknr,
+ 	ext4_grpblk_t offset;
+ 
+ 	blocknr = blocknr - le32_to_cpu(es->s_first_data_block);
+-	offset = do_div(blocknr, EXT4_BLOCKS_PER_GROUP(sb));
++	offset = do_div(blocknr, EXT4_BLOCKS_PER_GROUP(sb)) >>
++		EXT4_SB(sb)->s_cluster_bits;
+ 	if (offsetp)
+ 		*offsetp = offset;
+ 	if (blockgrpp)
+diff --git a/fs/ext4/mballoc.h b/fs/ext4/mballoc.h
+index 02b06ef..322626a 100644
+--- a/fs/ext4/mballoc.h
++++ b/fs/ext4/mballoc.h
+@@ -218,11 +218,7 @@ struct ext4_buddy {
+ static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
+ 					struct ext4_free_extent *fex)
+ {
+-	ext4_fsblk_t block;
+-
+-	block = (ext4_fsblk_t) fex->fe_group * EXT4_BLOCKS_PER_GROUP(sb)
+-			+ fex->fe_start
+-			+ le32_to_cpu(EXT4_SB(sb)->s_es->s_first_data_block);
+-	return block;
++	return ext4_group_first_block_no(sb, fex->fe_group) +
++		(fex->fe_start << EXT4_SB(sb)->s_cluster_bits);
+ }
+ #endif

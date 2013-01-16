@@ -1,0 +1,261 @@
+From: Chenggang Qin <chenggang.qcg@taobao.com>
+Subject: Perf: Add ability to support JIT symbol annotation.
+Patch-mainline: In house
+References: 
+
+This patch adds a new function to support JIT symbol annotation for perf.
+But the function is available only with a in-house-usage JVM and a java
+agent.
+
+Signed-off-by: Chang Ren <changren@taobao.com>
+Signed-off-by: Chenggang Qin <chenggang.qcg@taobao.com>
+Acked-by: 
+
+Index: linux-2.6.32-279.9.1.el5/tools/perf/Makefile
+===================================================================
+--- linux-2.6.32-279.9.1.el5.orig/tools/perf/Makefile	2012-10-16 15:32:18.603670717 +0800
++++ linux-2.6.32-279.9.1.el5/tools/perf/Makefile	2012-10-24 10:36:05.265954238 +0800
+@@ -90,7 +90,7 @@
+   CFLAGS_OPTIMIZE = -O6
+ endif
+ 
+-CFLAGS = -fno-omit-frame-pointer -ggdb3 -Wall -Wextra -std=gnu99 -Werror $(CFLAGS_OPTIMIZE) -D_FORTIFY_SOURCE=2 $(EXTRA_WARNINGS) $(EXTRA_CFLAGS)
++CFLAGS = -fno-omit-frame-pointer -ggdb3 -Wall -Wextra -std=gnu99 -Werror $(CFLAGS_OPTIMIZE) -D_FORTIFY_SOURCE=2 $(EXTRA_WARNINGS) $(EXTRA_CFLAGS) -DCONFIG_PERF_JIT
+ EXTLIBS = -lpthread -lrt -lelf -lm
+ ALL_CFLAGS = $(CFLAGS) -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
+ ALL_LDFLAGS = $(LDFLAGS)
+@@ -281,6 +281,7 @@
+ LIB_H += util/probe-event.h
+ LIB_H += util/pstack.h
+ LIB_H += util/cpumap.h
++LIB_H += util/jit.h
+ LIB_H += util/top.h
+ LIB_H += $(ARCH_INCLUDE)
+ LIB_H += util/cgroup.h
+Index: linux-2.6.32-279.9.1.el5/tools/perf/util/jit.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ linux-2.6.32-279.9.1.el5/tools/perf/util/jit.h	2012-10-24 10:28:46.431736219 +0800
+@@ -0,0 +1,23 @@
++#ifndef __PERF_JIT
++#define __PERF_JIT
++
++#include "types.h"
++
++#define JIT_SYMBOL_STATUS_LOAD 1
++#define JIT_SYMBOL_STATUS_UNLOAD 2
++
++struct jit_symbol {
++	u8      status;
++	u64     add;
++	u64     len;
++	u16     name_len;
++	char    name[0];
++};
++
++struct jit_map {
++	u32     next_sym_offset;
++	struct  jit_symbol symbols[0];
++};
++
++#endif /* __PERF_JIT */
++
+Index: linux-2.6.32-279.9.1.el5/tools/perf/util/map.c
+===================================================================
+--- linux-2.6.32-279.9.1.el5.orig/tools/perf/util/map.c	2012-10-16 15:32:18.635670873 +0800
++++ linux-2.6.32-279.9.1.el5/tools/perf/util/map.c	2012-10-24 10:33:35.045196452 +0800
+@@ -8,6 +8,13 @@
+ #include <unistd.h>
+ #include "map.h"
+ 
++#ifdef CONFIG_PERF_JIT
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <sys/mman.h>
++#include <fcntl.h>
++#endif
++
+ const char *map_type__name[MAP__NR_TYPES] = {
+ 	[MAP__FUNCTION] = "Functions",
+ 	[MAP__VARIABLE] = "Variables",
+@@ -38,6 +45,9 @@
+ 	RB_CLEAR_NODE(&self->rb_node);
+ 	self->groups   = NULL;
+ 	self->referenced = false;
++#ifdef CONFIG_PERF_JIT
++	self->jit_map  = NULL;
++#endif
+ }
+ 
+ struct map *map__new(struct list_head *dsos__list, u64 start, u64 len,
+@@ -64,6 +74,28 @@
+ 			goto out_delete;
+ 
+ 		map__init(self, type, start, start + len, pgoff, dso);
++#ifdef CONFIG_PERF_JIT
++		if (dso->symtab_type == SYMTAB__JAVA_JIT && self->jit_map == NULL) {
++			char buf[50];
++			int fd;
++
++			sprintf(buf, "/tmp/hotspot-vm-perf-%d", pid);
++			fd = open(buf, O_RDONLY, 0);
++
++			if (fd != -1) {
++				struct stat fs;
++
++				fstat(fd, &fs);
++				self->jit_map = (struct jit_map *)mmap(0, fs.st_size, PROT_READ, MAP_SHARED, fd, 0);
++				if (self->jit_map == MAP_FAILED) {
++					self->jit_map = NULL;
++				}
++				close(fd);
++				pr_info("Hotspot JIT map %s is mapped at: 0x%lx size: %ld perf map: 0x%lx\n", buf, (u64)self->jit_map, fs.st_size, (u64)self);
++				self->next_sym_offset = sizeof(struct jit_map);
++			}
++		}
++#endif
+ 
+ 		if (anon || no_dso) {
+ 			self->map_ip = self->unmap_ip = identity__map_ip;
+@@ -79,6 +111,9 @@
+ 	}
+ 	return self;
+ out_delete:
++#ifdef CONFIG_PERF_JIT
++	pr_info("map free: %lx file %s\n", (u64)self, filename);
++#endif
+ 	free(self);
+ 	return NULL;
+ }
+@@ -165,6 +200,9 @@
+ 	if (map__load(self, filter) < 0)
+ 		return NULL;
+ 
++#ifdef CONFIG_PERF_JIT
++	load_jit_symbols(self->dso, self, filter);
++#endif
+ 	return dso__find_symbol(self->dso, self->type, addr);
+ }
+ 
+Index: linux-2.6.32-279.9.1.el5/tools/perf/util/map.h
+===================================================================
+--- linux-2.6.32-279.9.1.el5.orig/tools/perf/util/map.h	2012-10-16 15:32:18.743671413 +0800
++++ linux-2.6.32-279.9.1.el5/tools/perf/util/map.h	2012-10-24 10:34:14.933396846 +0800
+@@ -7,6 +7,9 @@
+ #include <stdio.h>
+ #include <stdbool.h>
+ #include "types.h"
++#ifdef CONFIG_PERF_JIT
++#include "jit.h"
++#endif
+ 
+ enum map_type {
+ 	MAP__FUNCTION = 0,
+@@ -43,6 +46,10 @@
+ 
+ 	struct dso		*dso;
+ 	struct map_groups	*groups;
++#ifdef CONFIG_PERF_JIT
++	struct jit_map          *jit_map;
++	u32                     next_sym_offset;
++#endif
+ };
+ 
+ struct kmap {
+Index: linux-2.6.32-279.9.1.el5/tools/perf/util/symbol.c
+===================================================================
+--- linux-2.6.32-279.9.1.el5.orig/tools/perf/util/symbol.c	2012-10-16 15:32:18.707671234 +0800
++++ linux-2.6.32-279.9.1.el5/tools/perf/util/symbol.c	2012-10-24 10:33:08.397062268 +0800
+@@ -22,6 +22,9 @@
+ #include <elf.h>
+ #include <limits.h>
+ #include <sys/utsname.h>
++#ifdef CONFIG_PERF_JIT
++#include "jit.h"
++#endif
+ 
+ #ifndef KSYM_NAME_LEN
+ #define KSYM_NAME_LEN 256
+@@ -1605,6 +1608,13 @@
+ 		return ret;
+ 	}
+ 
++#ifdef CONFIG_PERF_JIT
++	/* The following iteration changes the origin. To preserve origin of type jit, skip here.*/
++	if (dso->symtab_type == SYMTAB__JAVA_JIT) {
++		return -1;
++	}
++#endif
++
+ 	/* Iterate over candidate debug images.
+ 	 * On the first pass, only load images if they have a full symtab.
+ 	 * Failing that, do a second pass where we accept .dynsym also
+@@ -2191,6 +2201,13 @@
+ 		if (dso != NULL) {
+ 			dsos__add(head, dso);
+ 			dso__set_basename(dso);
++#ifdef CONFIG_PERF_JIT
++			/* If dso is oprofile wrapped, set the origin to DSO__ORIG_JAVA_JIT */
++			if (strncmp(dso->name, "/tmp/hs-vm-", 11) == 0) {
++				dso->symtab_type = SYMTAB__JAVA_JIT;
++				pr_info("Set origin of dso %s to DSO__ORIG_JAVA_JIT\n", dso->name);
++			}
++#endif
+ 		}
+ 	}
+ 
+@@ -2762,3 +2779,42 @@
+ 
+ 	return ret;
+ }
++
++#ifdef CONFIG_PERF_JIT
++void load_jit_symbols(struct dso *dso, struct map *map, symbol_filter_t filter)
++{
++	if (dso && dso->symtab_type == SYMTAB__JAVA_JIT && map->jit_map) {
++		struct jit_symbol *sym;
++		struct symbol *symb = NULL;
++
++		while (map->next_sym_offset < map->jit_map->next_sym_offset) {
++			sym = (struct jit_symbol *)((void *)map->jit_map + map->next_sym_offset);
++			if (sym->add >= map->start && ((sym->add+sym->len) < map->end)) {
++				if (sym->status == JIT_SYMBOL_STATUS_LOAD) {
++					symb = symbol__new(map->map_ip(map, sym->add), sym->len, STB_GLOBAL, sym->name);
++					if (symb) {
++						if (filter && filter(map, symb)) {
++							symbol__delete(symb);
++						} else {
++							symbols__insert(&dso->symbols[map->type], symb);
++							pr_debug("perf insert sym map: 0x%lx start 0x%lx end 0x%lx name %s\n", (u64)map, symb->start, symb->end, symb->name);
++						}
++					}
++				} else if (sym->status == JIT_SYMBOL_STATUS_UNLOAD) {
++					symb = symbols__find(&dso->symbols[map->type], map->map_ip(map, sym->add));
++					pr_debug("Unload jit symbol, find: %lx\n", (u64)symb);
++					if (symb != NULL) {
++					/* For unload symbol, just erase it from rb. Deleting the unload symb arbitraryly impairs the active sym list.*/
++						rb_erase(&symb->rb_node, &dso->symbols[map->type]);
++					}
++				} else {
++					pr_debug("unknown jit symbol, status: %d\n", sym->status);
++				}
++			} else {
++				pr_debug("skip symbol start %lx end %lx, map start %lx end %lx\n", sym->add, sym->add+sym->len, map->start, map->end);
++			}
++			map->next_sym_offset += sizeof(struct jit_symbol) + sym->name_len;
++		}
++	}
++}
++#endif
+Index: linux-2.6.32-279.9.1.el5/tools/perf/util/symbol.h
+===================================================================
+--- linux-2.6.32-279.9.1.el5.orig/tools/perf/util/symbol.h	2012-10-16 15:32:18.795671676 +0800
++++ linux-2.6.32-279.9.1.el5/tools/perf/util/symbol.h	2012-10-24 10:34:37.385509838 +0800
+@@ -245,4 +245,7 @@
+ 
+ size_t machine__fprintf_vmlinux_path(struct machine *machine, FILE *fp);
+ 
++#ifdef CONFIG_PERF_JIT
++void load_jit_symbols(struct dso *dso, struct map *map, symbol_filter_t filter);
++#endif
+ #endif /* __PERF_SYMBOL */

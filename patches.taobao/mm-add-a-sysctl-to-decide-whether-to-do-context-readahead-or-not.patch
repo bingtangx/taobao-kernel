@@ -1,0 +1,86 @@
+From: Sha Zhengju <handai.szj@taobao.com> 
+Subject: [PATCH] mm: add a sysctl to decide whether to do context readahead or not
+Date: Tue, 29 Nov 2011 21:59:57 +0800
+Patch-mainline: in-house patch
+Reference:
+
+In some workload we observer 2.6.32 kenrel has recognized extra read I/Os more
+then 2.6.18 kernel. After debugging and confirming with readahead maintainer,
+we identify the issue is context readahead. Current context readahead code may
+introduce extra useless read I/O in some Taobao workload, e.g. Tair, TFS,
+Kbuild of dump center.
+
+This patch add a sysctl interface, which permit user to enable and disable
+context_readahead effort in run time. Default set enable_context_readahead to
+FALSE.
+
+Reviewed-by: Coly Li <bosong.ly@taobao.com>
+Signed-off-by: Sha Zhengju <handai.szj@taobao.com>
+---
+Index: linux-2.6.32-220.13.1.el5/kernel/sysctl.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/kernel/sysctl.c	2012-04-19 17:26:48.731046884 +0800
++++ linux-2.6.32-220.13.1.el5/kernel/sysctl.c	2012-04-19 17:30:37.492181241 +0800
+@@ -96,6 +96,7 @@
+ extern int sysctl_nr_trim_pages;
+ #endif
+ extern int kexec_load_disabled;
++extern int sysctl_enable_cnx_ra;
+ 
+ int exec_shield = (1<<0);
+ /* exec_shield is a bitmask:
+@@ -1594,6 +1595,15 @@
+ 		.extra2		= &one,
+ 	},
+ #endif
++	{
++		.ctl_name       = VM_ENABLE_CONTEXT_READAHEAD,
++		.procname       = "enable_context_readahead",
++		.data           = &sysctl_enable_cnx_ra,
++		.maxlen         = sizeof(int),
++		.mode           = 0644,
++		.proc_handler   = &proc_dointvec_minmax,
++		.strategy       = &sysctl_intvec,
++	},
+ 
+ /*
+  * NOTE: do not add new entries to this table unless you have read
+Index: linux-2.6.32-220.13.1.el5/mm/readahead.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/mm/readahead.c	2012-04-19 17:26:10.150855577 +0800
++++ linux-2.6.32-220.13.1.el5/mm/readahead.c	2012-04-19 17:30:37.492181241 +0800
+@@ -18,6 +18,9 @@
+ #include <linux/pagemap.h>
+ #include <trace/events/mm.h>
+ 
++/* Don't do context readahead */
++int sysctl_enable_cnx_ra = 0;
++
+ /*
+  * Initialise a struct file's readahead state.  Assumes that the caller has
+  * memset *ra to zero.
+@@ -454,8 +457,10 @@
+ 	 * Query the page cache and look for the traces(cached history pages)
+ 	 * that a sequential stream would leave behind.
+ 	 */
+-	if (try_context_readahead(mapping, ra, offset, req_size, max))
+-		goto readit;
++	if (sysctl_enable_cnx_ra) {
++		if (try_context_readahead(mapping, ra, offset, req_size, max))
++			goto readit;
++	}
+ 
+ 	/*
+ 	 * standalone, small random read
+Index: linux-2.6.32-220.13.1.el5/include/linux/sysctl.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/sysctl.h	2012-04-19 17:26:48.727046858 +0800
++++ linux-2.6.32-220.13.1.el5/include/linux/sysctl.h	2012-04-19 17:30:37.492181241 +0800
+@@ -204,6 +204,7 @@
+ 	VM_PANIC_ON_OOM=33,	/* panic at out-of-memory */
+ 	VM_VDSO_ENABLED=34,	/* map VDSO into new processes? */
+ 	VM_MIN_SLAB=35,		 /* Percent pages ignored by zone reclaim */
++	VM_ENABLE_CONTEXT_READAHEAD=36, /* Decide whether to do context readahead or not */
+ };
+ 
+ 

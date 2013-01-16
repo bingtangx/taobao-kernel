@@ -1,0 +1,21 @@
+From: Wensong Zhang <zhengming@taobao.com>
+Subject: LVS: Tune the locks of connection hash table from 16 to 256
+Patch-mainline: in-house
+
+Tune the locks of connection hash table from 16 to 256, so that collision will be low, especially on hardware environment of 16 cores.
+
+Signed-off-by: Wensong Zhang <zhengming@taobao.com>
+---
+diff --git a/net/netfilter/ipvs/ip_vs_conn.c b/net/netfilter/ipvs/ip_vs_conn.c
+index 5a99f81..53d2316 100644
+--- a/net/netfilter/ipvs/ip_vs_conn.c
++++ b/net/netfilter/ipvs/ip_vs_conn.c
+@@ -60,7 +60,7 @@ static unsigned int ip_vs_conn_rnd;
+ /*
+  *  Fine locking granularity for big connection hash table
+  */
+-#define CT_LOCKARRAY_BITS  4
++#define CT_LOCKARRAY_BITS  8
+ #define CT_LOCKARRAY_SIZE  (1<<CT_LOCKARRAY_BITS)
+ #define CT_LOCKARRAY_MASK  (CT_LOCKARRAY_SIZE-1)
+ 

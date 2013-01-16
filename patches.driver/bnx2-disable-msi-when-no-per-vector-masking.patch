@@ -1,0 +1,44 @@
+From: Li Yu <yu.li@aliyun-inc.com>
+Subject: Disable bnx2 MSI support when no per-vector masking capability
+Patch-mainline: in house fix yet
+Reference: BF#131606
+
+If bnx2 NIC does not have per-vector masking capability, enabling MSI will
+introduce unstable issue in high workload. This patch disable MSI when bnx2
+NIC device reports no per-vector masking capability.
+
+Without this patch, we can only simply disable MSI for all bnx2 device, we
+lose performance with bnx2 NIC with per-vector masking enabled.
+
+Signed-off-by: Li Yu <yu.li@aliyun-inc.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/drivers/net/bnx2.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/drivers/net/bnx2.c	2011-12-13 13:40:04.404564433 +0800
++++ linux-2.6.32-220.0.0.el5/drivers/net/bnx2.c	2011-12-13 14:13:23.358476710 +0800
+@@ -8063,8 +8063,22 @@
+ 	}
+ 
+ 	if (CHIP_ID(bp) != CHIP_ID_5706_A0 && CHIP_ID(bp) != CHIP_ID_5706_A1) {
+-		if (pci_find_capability(pdev, PCI_CAP_ID_MSI))
+-			bp->flags |= BNX2_FLAG_MSI_CAP;
++		rc = pci_find_capability(pdev, PCI_CAP_ID_MSI);
++		if (rc) {
++			/*
++			 * Only enable MSI when device has per-vector masking
++			 * capability. Otherwise, its
++			 * /proc/irq/<irq>/smp_affinity does not work at all.
++			 */
++			u16 ctrl;
++			pci_read_config_word(pdev, rc + PCI_MSI_FLAGS, &ctrl);
++			if (ctrl & PCI_MSI_FLAGS_MASKBIT)
++				bp->flags |= BNX2_FLAG_MSI_CAP;
++			else
++				dev_info(&pdev->dev,
++					"Disable MSI due to lacking per-vector "
++					"masking capability.");
++		}
+ 	}
+ 
+ 	/* 5708 cannot support DMA addresses > 40-bit.  */

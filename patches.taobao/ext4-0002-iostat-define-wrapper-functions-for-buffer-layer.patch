@@ -1,0 +1,130 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH v2 2/8] ext4: add wrapper functions for buffer layer
+Patch-mainline: in house patch
+
+Wrapper functions are defined to account the result of IO type.
+
+Signed-off-by: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-220.4.2.el5/fs/ext4/ext4.h
+===================================================================
+--- linux-2.6.32-220.4.2.el5.orig/fs/ext4/ext4.h
++++ linux-2.6.32-220.4.2.el5/fs/ext4/ext4.h
+@@ -1862,6 +1862,27 @@ static inline void ext4_ios_read(struct 
+ 	__ext4_io_stat(sb, READ, type, count);
+ }
+ 
++extern void ext4_submit_bh_read_nowait(int rw, struct buffer_head *bh,
++				       struct super_block *sb, int type,
++				       unsigned long count);
++extern int ext4_submit_bh_read(int rw, struct buffer_head *bh,
++			       struct super_block *sb, int type,
++			       unsigned long count);
++extern void ext4_submit_bh_write_nowait(int rw, struct buffer_head *bh,
++					struct super_block *sb, int type,
++					unsigned long count);
++extern struct buffer_head *ext4_sb_bread(struct super_block *sb, sector_t block,
++					 int type, unsigned long count);
++extern void ext4_sb_breadahead(struct super_block *sb,
++			       sector_t block, int type);
++
++static inline int ext4_bh_submit_read(struct buffer_head *bh,
++				      struct super_block *sb,
++				      int type, unsigned long count)
++{
++	return ext4_submit_bh_read(READ, bh, sb, type, count);
++}
++
+ extern void __ext4_error(struct super_block *, const char *, const char *, ...)
+ 	__attribute__ ((format (printf, 3, 4)));
+ #define ext4_error(sb, message...)	__ext4_error(sb, __func__, ## message)
+Index: linux-2.6.32-220.4.2.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.4.2.el5.orig/fs/ext4/super.c
++++ linux-2.6.32-220.4.2.el5/fs/ext4/super.c
+@@ -4689,6 +4689,84 @@ count:
+ 	__ext4_io_stat(sb, WRITE, type, count);
+ }
+ 
++void ext4_submit_bh_read_nowait(int rw, struct buffer_head *bh,
++				struct super_block *sb, int type,
++				unsigned long count)
++{
++	BUG_ON(rw & WRITE);
++	BUG_ON(!buffer_locked(bh));
++
++	/* IO type accounting */
++	ext4_ios_read(sb, type, count);
++
++	get_bh(bh);
++	bh->b_end_io = end_buffer_read_sync;
++	submit_bh(rw, bh);
++}
++
++int ext4_submit_bh_read(int rw, struct buffer_head *bh, struct super_block *sb,
++			int type, unsigned long count)
++{
++	BUG_ON(rw & WRITE);
++	BUG_ON(!buffer_locked(bh));
++
++	if (buffer_uptodate(bh)) {
++		unlock_buffer(bh);
++		return 0;
++	}
++
++	ext4_submit_bh_read_nowait(rw, bh, sb, type, count);
++	wait_on_buffer(bh);
++	if (buffer_uptodate(bh))
++		return 0;
++	return -EIO;
++}
++
++void ext4_submit_bh_write_nowait(int rw, struct buffer_head *bh,
++				 struct super_block *sb, int type,
++				 unsigned long count)
++{
++	BUG_ON(!(rw & WRITE));
++	BUG_ON(!buffer_locked(bh));
++
++	/* IO type accounting */
++	ext4_ios_write(sb, NULL, NULL, type, count);
++
++	get_bh(bh);
++	bh->b_end_io = end_buffer_write_sync;
++	submit_bh(rw, bh);
++}
++
++struct buffer_head *ext4_sb_bread(struct super_block *sb, sector_t block,
++				  int type, unsigned long count)
++{
++	struct buffer_head *bh = __getblk(sb->s_bdev, block, sb->s_blocksize);
++
++	if (likely(bh) && !buffer_uptodate(bh)) {
++		lock_buffer(bh);
++		if (ext4_submit_bh_read(READ, bh, sb, type, count)) {
++			brelse(bh);
++			bh = NULL;
++		}
++	}
++	return bh;
++}
++
++void ext4_sb_breadahead(struct super_block *sb, sector_t block, int type)
++{
++	struct buffer_head *bh = __getblk(sb->s_bdev, block, sb->s_blocksize);
++	if (likely(bh)) {
++		if (trylock_buffer(bh)) {
++			if (!buffer_uptodate(bh))
++				ext4_submit_bh_read_nowait(READ, bh, sb,
++							   type, 1);
++			else
++				unlock_buffer(bh);
++		}
++		brelse(bh);
++	}
++}
++
+ static int ext4_get_sb(struct file_system_type *fs_type, int flags,
+ 		       const char *dev_name, void *data, struct vfsmount *mnt)
+ {

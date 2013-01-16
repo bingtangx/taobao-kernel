@@ -1,0 +1,25 @@
+From:   Coly Li <bosong.ly@taobao.com> 
+Date:   Tue Dec 13 23:46:54 CST 2011
+Subject: fix type of cputime_to_usecs in asm-generic/cputime.h
+Patch-mainline: in-house
+Reference:
+
+Fix a compiling failure in RHEL6.2 2.6.32-220 kernel.
+
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/include/asm-generic/cputime.h
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/include/asm-generic/cputime.h	2011-12-13 16:10:06.853205740 +0800
++++ linux-2.6.32-220.0.0.el5/include/asm-generic/cputime.h	2011-12-13 16:10:24.373292049 +0800
+@@ -41,8 +41,8 @@
+ /*
+  * Convert cputime to microseconds and back.
+  */
+-#define cputime_to_usecs(__ct)		jiffies_to_usecs(__ct);
+-#define usecs_to_cputime(__msecs)	usecs_to_jiffies(__msecs);
++#define cputime_to_usecs(__ct)		jiffies_to_usecs(__ct)
++#define usecs_to_cputime(__msecs)	usecs_to_jiffies(__msecs)
+ 
+ /*
+  * Convert cputime to seconds and back.

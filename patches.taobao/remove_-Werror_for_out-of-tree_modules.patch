@@ -1,0 +1,28 @@
+commit 3bb9e4b61b8c0246944b7972afdf099cdfeaef43
+Author: Zhu Yanhai (Gao Yang) <gaoyang.zyh@taobao.com>
+From:   Zhu Yanhai (Gao Yang) <gaoyang.zyh@taobao.com>
+Subject: Makefile:Remove the -Werror for out-of-tree modules
+Date:   Thu Mar 3 14:19:10 2011 +0800
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+    - redhat-kernel-source/Makefile: Remove the -Werror for out-of-tree modules for now.
+    This is a workaround.
+    It was called unexpectly by rpmbuild on rhel6 which has a newer GCC. Once we get to know
+    how it is involved we may restore it later.
+
+Signed-off-by: Zhu Yanhai (Gao Yang) <gaoyang.zyh@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-71.18.2.el6/Makefile
+===================================================================
+--- linux-2.6.32-71.18.2.el6.orig/Makefile
++++ linux-2.6.32-71.18.2.el6/Makefile
+@@ -371,7 +371,7 @@ CPP_VERS        := $(shell expr $(CPP_MA
+ # gcc version 4.4.4 .
+ ifeq ($(KBUILD_EXTMOD),)
+ KBUILD_CFLAGS   += $(shell if [ $(CPP_VERS) -ge 4004004 ]; then \
+-		   echo "-Wno-array-bounds -Werror"; else echo ""; fi)
++		   echo "-Wno-array-bounds"; else echo ""; fi)
+ endif ##($(KBUILD_EXTMOD),)
+ endif #(,$(filter $(ARCH), i386 x86_64))
+ 

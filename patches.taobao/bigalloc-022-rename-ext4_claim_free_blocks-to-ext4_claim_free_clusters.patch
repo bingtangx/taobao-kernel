@@ -1,0 +1,58 @@
+From e7d5f3156e6827970f75ab27ad7eb0155826eb0b Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Fri, 9 Sep 2011 19:14:51 -0400
+Subject: [PATCH 22/26] ext4: rename ext4_claim_free_blocks() to ext4_claim_free_clusters()
+Patch-mainline: 3.2
+
+This function really claims a number of free clusters, not blocks, so
+rename it so it's clearer what's going on.
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+diff --git a/fs/ext4/balloc.c b/fs/ext4/balloc.c
+index 3618d8c..8d96825 100644
+--- a/fs/ext4/balloc.c
++++ b/fs/ext4/balloc.c
+@@ -494,11 +494,11 @@ int ext4_has_free_blocks(struct ext4_sb_info *sbi, s64 nblocks)
+ 	return 0;
+ }
+ 
+-int ext4_claim_free_blocks(struct ext4_sb_info *sbi,
+-						s64 nblocks)
++int ext4_claim_free_clusters(struct ext4_sb_info *sbi,
++						s64 nclusters)
+ {
+-	if (ext4_has_free_blocks(sbi, nblocks)) {
+-		percpu_counter_add(&sbi->s_dirtyclusters_counter, nblocks);
++	if (ext4_has_free_clusters(sbi, nclusters)) {
++		percpu_counter_add(&sbi->s_dirtyclusters_counter, nclusters);
+ 		return 0;
+ 	} else
+ 		return -ENOSPC;
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index b7c5ac6..a8f8115 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1621,7 +1621,7 @@ extern unsigned long ext4_bg_num_gdb(struct super_block *sb,
+ 			ext4_group_t group);
+ extern ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
+ 			ext4_fsblk_t goal, unsigned long *count, int *errp);
+-extern int ext4_claim_free_blocks(struct ext4_sb_info *sbi, s64 nblocks);
++extern int ext4_claim_free_clusters(struct ext4_sb_info *sbi, s64 nclusters);
+ extern int ext4_has_free_blocks(struct ext4_sb_info *sbi, s64 nblocks);
+ extern void ext4_free_blocks(handle_t *handle, struct inode *inode,
+ 			ext4_fsblk_t block, unsigned long count, int metadata);
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 07d71ef..0aeb61a 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -1965,7 +1965,7 @@ repeat:
+ 	 * We do still charge estimated metadata to the sb though;
+ 	 * we cannot afford to run out of free blocks.
+ 	 */
+-	if (ext4_claim_free_blocks(sbi, md_needed + 1)) {
++	if (ext4_claim_free_clusters(sbi, md_needed + 1)) {
+ 		vfs_dq_release_reservation_block(inode, EXT4_C2B(sbi, 1));
+ 		if (ext4_should_retry_alloc(inode->i_sb, &retries)) {
+ 			yield();

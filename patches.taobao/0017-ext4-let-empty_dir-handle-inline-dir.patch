@@ -1,0 +1,134 @@
+From f3806f909bc8014011ad895d2a84db989364a692 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Tue, 22 Nov 2011 00:04:36 +0800
+Subject: [PATCH 17/22] ext4: let empty_dir handle inline dir.
+Patch-mainline: in house
+
+empty_dir is used when deleting a dir. So it should handle
+inline dir properly.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+diff --git a/fs/ext4/inline.c b/fs/ext4/inline.c
+index fec484e..ba90b17 100644
+--- a/fs/ext4/inline.c
++++ b/fs/ext4/inline.c
+@@ -1420,6 +1420,75 @@ out:
+ 	return err;
+ }
+ 
++int empty_inline_dir(struct inode *dir, int *has_inline_data)
++{
++	int err, inline_size;
++	struct ext4_iloc iloc;
++	void *inline_pos;
++	unsigned int offset;
++	struct ext4_dir_entry_2 *de, *de1;
++	int ret = 1;
++
++	err = ext4_get_inode_loc(dir, &iloc);
++	if (err) {
++		EXT4_ERROR_INODE(dir, "error %d getting inode %lu block",
++				 err, dir->i_ino);
++		return 1;
++	}
++
++	down_read(&EXT4_I(dir)->xattr_sem);
++	if (!ext4_has_inline_data(dir)) {
++		*has_inline_data = 0;
++		goto out;
++	}
++
++	de = ext4_get_inline_entry(dir, &iloc, 0,
++				   &inline_pos, &inline_size);
++	de1 = ext4_get_inline_entry(dir, &iloc,
++			ext4_rec_len_from_disk(de->rec_len, inline_size),
++			&inline_pos, &inline_size);
++	if (le32_to_cpu(de->inode) != dir->i_ino ||
++			!le32_to_cpu(de1->inode) ||
++			strcmp(".", de->name) ||
++			strcmp("..", de1->name)) {
++		ext4_warning(dir->i_sb,
++			     "bad directory (dir #%lu) - no `.' or `..'",
++			     dir->i_ino);
++		ret = 1;
++		goto out;
++	}
++
++	offset = ext4_rec_len_from_disk(de->rec_len, inline_size) +
++		 ext4_rec_len_from_disk(de1->rec_len, inline_size);
++	while (offset < dir->i_size) {
++		de = ext4_get_inline_entry(dir, &iloc, offset,
++					   &inline_pos, &inline_size);
++		if (ext4_check_dir_entry(__func__, dir, de,
++					 iloc.bh, inline_pos,
++					 inline_size, offset)) {
++			ext4_warning(dir->i_sb,
++				     "bad inline directory (dir #%lu) - "
++				     "inode %u, rec_len %u, name_len %d"
++				     "inline size %d\n",
++				     dir->i_ino, le32_to_cpu(de->inode),
++				     le16_to_cpu(de->rec_len), de->name_len,
++				     inline_size);
++			ret = 1;
++			goto out;
++		}
++		if (le32_to_cpu(de->inode)) {
++			ret = 0;
++			goto out;
++		}
++		offset += ext4_rec_len_from_disk(de->rec_len, inline_size);
++	}
++
++out:
++	up_read(&EXT4_I(dir)->xattr_sem);
++	brelse(iloc.bh);
++	return ret;
++}
++
+ int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
+ {
+ 	int ret;
+diff --git a/fs/ext4/namei.c b/fs/ext4/namei.c
+index dfa6a71..4bc6726 100644
+--- a/fs/ext4/namei.c
++++ b/fs/ext4/namei.c
+@@ -2008,6 +2008,14 @@ static int empty_dir(struct inode *inode)
+ 	struct super_block *sb;
+ 	int err = 0;
+ 
++	if (ext4_has_inline_data(inode)) {
++		int has_inline_data = 1;
++
++		err = empty_inline_dir(inode, &has_inline_data);
++		if (has_inline_data)
++			return err;
++	}
++
+ 	sb = inode->i_sb;
+ 	if (inode->i_size < EXT4_DIR_REC_LEN(1) + EXT4_DIR_REC_LEN(2) ||
+ 	    !(bh = ext4_bread(NULL, inode, 0, 0, &err))) {
+diff --git a/fs/ext4/xattr.h b/fs/ext4/xattr.h
+index 917512b..17ba4b8 100644
+--- a/fs/ext4/xattr.h
++++ b/fs/ext4/xattr.h
+@@ -176,6 +176,7 @@ extern int ext4_delete_inline_entry(handle_t *handle,
+ 				    struct inode *dir,
+ 				    struct ext4_dir_entry_2 *de_del,
+ 				    struct buffer_head *bh);
++extern int empty_inline_dir(struct inode *dir, int *has_inline_data);
+ # else  /* CONFIG_EXT4_FS_XATTR */
+ 
+ static inline int
+@@ -373,6 +374,11 @@ static inline int ext4_delete_inline_entry(handle_t *handle,
+ {
+ 	return 0;
+ }
++
++static inline int empty_inline_dir(struct inode *dir, int *has_inline_data)
++{
++	return 0;
++}
+ # endif  /* CONFIG_EXT4_FS_XATTR */
+ 
+ #ifdef CONFIG_EXT4_FS_SECURITY

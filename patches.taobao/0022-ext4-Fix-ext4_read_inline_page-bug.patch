@@ -1,0 +1,98 @@
+From db2a21d036834c326a901b88c5b223854022c621 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Mon, 12 Dec 2011 17:24:57 +0800
+Subject: [PATCH 22/22] ext4: Enable ext4 inline support.
+Patch-mainline: Will be upstream soon.
+References: in house 
+
+this patch enables ext4 inline support
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+Acked-by: 
+
+---
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inline.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inline.c	2012-06-20 00:10:49.012018126 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inline.c	2012-06-20 00:10:50.800026991 +0800
+@@ -441,21 +441,12 @@
+ static int ext4_read_inline_page(struct inode *inode, struct page *page)
+ {
+ 	void *kaddr;
+-	loff_t size;
+ 	int ret = 0;
+ 	struct ext4_iloc iloc;
+ 
+ 	BUG_ON(!PageLocked(page));
+ 	BUG_ON(!ext4_has_inline_data(inode));
+-
+-	size = i_size_read(inode);
+-
+-	if (size > PAGE_CACHE_SIZE ||
+-	    size > ext4_get_inline_size(inode)) {
+-		ext4_error_inode(__func__, inode,
+-			"bad size %ld for a inline file", (long)size);
+-		return -EROFS;
+-	}
++	BUG_ON(page->index);
+ 
+ 	if (!EXT4_I(inode)->i_inline_off) {
+ 		ext4_warning(inode->i_sb, "inode %lu doesn't have inline data.",
+@@ -468,7 +459,7 @@
+ 		goto out;
+ 
+ 	kaddr = kmap_atomic(page, KM_USER0);
+-	ret = ext4_read_inline_data(inode, kaddr, size, &iloc);
++	ret = ext4_read_inline_data(inode, kaddr, ext4_get_inline_size(inode), &iloc);
+ 	flush_dcache_page(page);
+ 	kunmap_atomic(kaddr, KM_USER0);
+ 	SetPageUptodate(page);
+@@ -480,10 +471,23 @@
+ 
+ int ext4_readpage_inline(struct inode *inode, struct page *page)
+ {
+-	int ret;
++	int ret = 0;
+ 
+ 	down_read(&EXT4_I(inode)->xattr_sem);
+-	ret = ext4_read_inline_page(inode, page);
++	if (!ext4_has_inline_data(inode)) {
++		up_read(&EXT4_I(inode)->xattr_sem);
++		return -EAGAIN;
++	}
++
++	/*
++	 * Current inline data can only exist in the 1st page,
++	 * So for all the other pages, just set them uptodate.
++	 */
++	if (!page->index)
++		ret = ext4_read_inline_page(inode, page);
++	else if (!PageUptodate(page))
++		SetPageUptodate(page);
++
+ 	up_read(&EXT4_I(inode)->xattr_sem);
+ 
+ 	unlock_page(page);
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:09:13.979546881 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:10:50.804027006 +0800
+@@ -3733,12 +3733,16 @@
+ 
+ static int ext4_readpage(struct file *file, struct page *page)
+ {
++	int ret = -EAGAIN;
+ 	struct inode *inode = page->mapping->host;
+ 
+ 	if (ext4_has_inline_data(inode))
+-		return ext4_readpage_inline(inode, page);
++		ret = ext4_readpage_inline(inode, page);
+ 
+-	return mpage_readpage(page, ext4_get_block);
++	if (ret == -EAGAIN)
++		return mpage_readpage(page, ext4_get_block);
++
++	return ret;
+ }
+ 
+ static int

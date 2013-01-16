@@ -1,0 +1,62 @@
+From 12706394bcaa48e3d5e19c97d7b4e5683ebb12fb Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Sun, 10 Jul 2011 22:37:50 -0400
+Subject: [PATCH] ext4: add tracepoint for ext4_journal_start
+Patch-mainline: 12706394bcaa48e3d5e19c97d7b4e5683ebb12fb
+References: 
+
+This will help debug who is responsible for starting a jbd2 transaction.
+
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Acked-by: Tao Ma <boyu.mt@taobao.com>
+
+---
+ fs/ext4/super.c             |    1 +
+ include/trace/events/ext4.h |   22 ++++++++++++++++++++++
+ 2 files changed, 23 insertions(+), 0 deletions(-)
+
+Index: linux-2.6.32-220.0.0.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/fs/ext4/super.c	2011-12-13 14:28:15.490900563 +0800
++++ linux-2.6.32-220.0.0.el5/fs/ext4/super.c	2011-12-13 14:30:30.443569752 +0800
+@@ -234,6 +234,7 @@
+ {
+ 	journal_t *journal;
+ 
++	trace_ext4_journal_start(sb, nblocks, _RET_IP_);
+ 	if (sb->s_flags & MS_RDONLY)
+ 		return ERR_PTR(-EROFS);
+ 
+Index: linux-2.6.32-220.0.0.el5/include/trace/events/ext4.h
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/include/trace/events/ext4.h	2011-12-13 13:40:03.704560967 +0800
++++ linux-2.6.32-220.0.0.el5/include/trace/events/ext4.h	2011-12-13 14:30:30.443569752 +0800
+@@ -849,6 +849,28 @@
+ 		  __entry->result_len, __entry->result_logical)
+ );
+ 
++TRACE_EVENT(ext4_journal_start,
++	TP_PROTO(struct super_block *sb, int nblocks, unsigned long IP),
++
++	TP_ARGS(sb, nblocks, IP),
++
++	TP_STRUCT__entry(
++		__field(	dev_t,	dev			)
++		__field(	  int, 	nblocks			)
++		__field(unsigned long,	ip			)
++	),
++
++	TP_fast_assign(
++		__entry->dev	 = sb->s_dev;
++		__entry->nblocks = nblocks;
++		__entry->ip	 = IP;
++	),
++
++	TP_printk("dev %d,%d nblocks %d caller %pF",
++		  MAJOR(__entry->dev), MINOR(__entry->dev),
++		  __entry->nblocks, (void *)__entry->ip)
++);
++
+ #endif /* _TRACE_EXT4_H */
+ 
+ /* This part must be outside protection */

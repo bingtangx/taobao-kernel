@@ -1,0 +1,95 @@
+From 84061e07c5fbbbf9dc8aef8fb750fc3a2dfc31f3 Mon Sep 17 00:00:00 2001
+From: Dmitry Monakhov <dmonakhov@openvz.org>
+Date: Sun, 16 May 2010 08:00:00 -0400
+Subject: [PATCH] ext4: init statistics after journal recovery
+Patch-mainline: 84061e07c5fbbbf9dc8aef8fb750fc3a2dfc31f3
+References: 
+
+Currently block/inode/dir counters initialized before journal was
+recovered. In fact after journal recovery this info will probably
+change. And freeblocks it critical for correct delalloc mode
+accounting.
+
+https://bugzilla.kernel.org/show_bug.cgi?id=15768
+
+Signed-off-by: Dmitry Monakhov <dmonakhov@openvz.org>
+Acked-by: Jan Kara <jack@suse.cz>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Acked-by: Tao Ma <boyu.mt@taobao.com>
+
+---
+ fs/ext4/super.c |   40 ++++++++++++++++++----------------------
+ 1 files changed, 18 insertions(+), 22 deletions(-)
+
+Index: linux-2.6.32-220.0.0.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/fs/ext4/super.c	2011-12-13 14:21:44.608962278 +0800
++++ linux-2.6.32-220.0.0.el5/fs/ext4/super.c	2011-12-13 14:28:15.490900563 +0800
+@@ -3189,24 +3189,6 @@
+ 	get_random_bytes(&sbi->s_next_generation, sizeof(u32));
+ 	spin_lock_init(&sbi->s_next_gen_lock);
+ 
+-	err = percpu_counter_init(&sbi->s_freeblocks_counter,
+-			ext4_count_free_blocks(sb));
+-	if (!err) {
+-		err = percpu_counter_init(&sbi->s_freeinodes_counter,
+-				ext4_count_free_inodes(sb));
+-	}
+-	if (!err) {
+-		err = percpu_counter_init(&sbi->s_dirs_counter,
+-				ext4_count_dirs(sb));
+-	}
+-	if (!err) {
+-		err = percpu_counter_init(&sbi->s_dirtyblocks_counter, 0);
+-	}
+-	if (err) {
+-		ext4_msg(sb, KERN_ERR, "insufficient memory");
+-		goto failed_mount3;
+-	}
+-
+ 	sbi->s_stripe = ext4_get_stripe_size(sbi);
+ 	sbi->s_max_writeback_mb_bump = 128;
+ 
+@@ -3326,6 +3308,20 @@
+ 
+ no_journal:
+ 
++	err = percpu_counter_init(&sbi->s_freeblocks_counter,
++				  ext4_count_free_blocks(sb));
++	if (!err)
++		err = percpu_counter_init(&sbi->s_freeinodes_counter,
++					  ext4_count_free_inodes(sb));
++	if (!err)
++		err = percpu_counter_init(&sbi->s_dirs_counter,
++					  ext4_count_dirs(sb));
++	if (!err)
++		err = percpu_counter_init(&sbi->s_dirtyblocks_counter, 0);
++	if (err) {
++		ext4_msg(sb, KERN_ERR, "insufficient memory");
++		goto failed_mount_wq;
++	}
+ 	if (test_opt(sb, NOBH)) {
+ 		if (!(test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_WRITEBACK_DATA)) {
+ 			ext4_msg(sb, KERN_WARNING, "Ignoring nobh option - "
+@@ -3464,6 +3460,10 @@
+ 		jbd2_journal_destroy(sbi->s_journal);
+ 		sbi->s_journal = NULL;
+ 	}
++	percpu_counter_destroy(&sbi->s_freeblocks_counter);
++	percpu_counter_destroy(&sbi->s_freeinodes_counter);
++	percpu_counter_destroy(&sbi->s_dirs_counter);
++	percpu_counter_destroy(&sbi->s_dirtyblocks_counter);
+ failed_mount3:
+ 	if (sbi->s_flex_groups) {
+ 		if (is_vmalloc_addr(sbi->s_flex_groups))
+@@ -3471,10 +3471,6 @@
+ 		else
+ 			kfree(sbi->s_flex_groups);
+ 	}
+-	percpu_counter_destroy(&sbi->s_freeblocks_counter);
+-	percpu_counter_destroy(&sbi->s_freeinodes_counter);
+-	percpu_counter_destroy(&sbi->s_dirs_counter);
+-	percpu_counter_destroy(&sbi->s_dirtyblocks_counter);
+ failed_mount2:
+ 	for (i = 0; i < db_count; i++)
+ 		brelse(sbi->s_group_desc[i]);

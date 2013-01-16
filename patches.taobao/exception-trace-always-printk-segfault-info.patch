@@ -1,0 +1,46 @@
+From: Coly Li <bosong.ly@taobao.com>
+Subject: [PATCH] exception-trace: always show segfault info in dmesg if /proc/sys/debug/exception-trace set to 2
+Date: Tue May  8 17:32:27 CST 2012
+Patch-mainline: in-house usage
+
+JVM (Java virtual machine) registers its own signal handlers, in case of SIGSEGV which a jvm process should be
+received, kernel may not always display segfault info in dmesg if unhandled_signal() or printk_ratelimit() return
+fauls.
+
+sysctl file /proc/sys/debug/exception-trace controls segfault dmesg behavior, current configure in RHEL6 kernel is,
+*) 0, don't display segfault info in dmesg
+*) 1, may display segfault info in dmesg, if pass unhandled_signal() and printk_ratelimit() checking.
+This patch add another configuration,
+*) 2, always display segfault info in dmesg, skip unhandled_signal() and printk_ratelimit() checking.
+
+This is a special requirement from JVM development/maintenance team. exception-trace is default to 1, if users
+want always display segfault info, please configure /proc/sys/debug/exception-trace to 2.
+
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.13.1.el5/arch/x86/mm/fault.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/arch/x86/mm/fault.c	2012-05-08 17:03:45.844511369 +0800
++++ linux-2.6.32-220.13.1.el5/arch/x86/mm/fault.c	2012-05-08 17:28:53.527987547 +0800
+@@ -706,12 +706,21 @@
+ show_signal_msg(struct pt_regs *regs, unsigned long error_code,
+ 		unsigned long address, struct task_struct *tsk)
+ {
++	/*
++	 * if show_unhandled_signals == 2, always printk segfault
++	 * information in dmesg, this is required by java virtual
++	 * machine developers.
++	 */
++	if (unlikely(show_unhandled_signals == 2))
++		goto show_msg;
++
+ 	if (!unhandled_signal(tsk, SIGSEGV))
+ 		return;
+ 
+ 	if (!printk_ratelimit())
+ 		return;
+ 
++show_msg:
+ 	printk("%s%s[%d]: segfault at %lx ip %p sp %p error %lx",
+ 		task_pid_nr(tsk) > 1 ? KERN_INFO : KERN_EMERG,
+ 		tsk->comm, task_pid_nr(tsk), address,

@@ -1,0 +1,80 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH] fs: add a parameter in sysctl to switch on/off netoops when bio_error_handler is called
+Patch-mainline: in-house
+References: 
+
+Currently when we get an bio error, bio_error_handler will be called and all
+dmesg will be sent out using netoops.  This patch adds a parameter called
+'fs.bio_netoops' to switch on/off netoops.
+
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+Acked-by: 
+
+---
+ fs/bio.c               |    8 +++++++-
+ include/linux/sysctl.h |    1 +
+ kernel/sysctl.c        |   12 ++++++++++++
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+
+--- a/fs/bio.c
++++ b/fs/bio.c
+@@ -37,6 +37,11 @@
+ static mempool_t *bio_split_pool __read_mostly;
+ 
+ /*
++ * enable/disable netoops in bio error handler
++ */
++int sysctl_enable_bio_netoops = 1;
++
++/*
+  * if you change this list, also change bvec_alloc or things will
+  * break badly! cannot be bigger than what you can fit into an
+  * unsigned short
+@@ -1454,7 +1459,8 @@ static void bio_error_handler(struct blo
+ 		}
+ 	}
+ 	spin_unlock(&eio->lock);
+-	kmsg_dump(KMSG_DUMP_SOFT, NULL);
++	if (sysctl_enable_bio_netoops)
++		kmsg_dump(KMSG_DUMP_SOFT, NULL);
+ }
+ 
+ /**
+--- a/include/linux/sysctl.h
++++ b/include/linux/sysctl.h
+@@ -837,6 +837,7 @@ enum
+ 	FS_AIO_MAX_NR=19,	/* system-wide maximum number of aio requests */
+ 	FS_INOTIFY=20,	/* inotify submenu */
+ 	FS_OCFS2=988,	/* ocfs2 */
++	FS_BIO_NETOOPS=989,	/* enable/disable netoops in bio error handler */
+ };
+ 
+ /* /proc/sys/fs/quota/ */
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -99,6 +99,7 @@ extern int kexec_load_disabled;
+ extern int sysctl_enable_cnx_ra;
+ extern int sysctl_mlock_flush_pagevec;
+ extern int vm_enable_legacy_mm;
++extern int sysctl_enable_bio_netoops;
+ 
+ int exec_shield = (1<<0);
+ /* exec_shield is a bitmask:
+@@ -1795,6 +1796,17 @@ static struct ctl_table fs_table[] = {
+ 		.child		= binfmt_misc_table,
+ 	},
+ #endif
++	{
++		.ctl_name	= FS_BIO_NETOOPS,
++		.procname	= "bio_netoops",
++		.data		= &sysctl_enable_bio_netoops,
++		.maxlen		= sizeof(int),
++		.mode		= 0644,
++		.proc_handler	= &proc_dointvec_minmax,
++		.strategy	= &sysctl_intvec,
++		.extra1		= &zero,
++		.extra2		= &one,
++	},
+ /*
+  * NOTE: do not add new entries to this table unless you have read
+  * Documentation/sysctl/ctl_unnumbered.txt

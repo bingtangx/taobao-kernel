@@ -1,0 +1,199 @@
+From: Li Yu <bingtian.ly@taobao.com>
+Subject: rt-stat: Export sum and total of RT samples in procfs instead of computing average in kernel
+Patch-mainline: In house
+References: 
+
+According to feedback of current rt_stat.ko from Lian Ming, its
+exported average RT is too unstable to be useful in actual environment.
+
+Therefore we do not compute move average RT in kernel anymore, but just export
+the sum and count of RT samples in procfs, leave userland to get it now.
+
+diff --git a/net/ipv4/rt_stat.c b/net/ipv4/rt_stat.c
+index 85ea0bb..9c09110 100644
+
+Signed-off-by: Li Yu <bingtian.ly@taobao.com>
+
+--- a/net/ipv4/rt_stat.c
++++ b/net/ipv4/rt_stat.c
+@@ -55,10 +55,15 @@ struct rt_stat {
+ 	struct hlist_head ip_table[RT_HASH_TABLE_SIZE];
+ };
+ 
++struct rt_stat_avg {
++	unsigned long sum;
++	unsigned long count;
++};
++
+ /* All RT statictis are saved here */
+ /* It must be accessed under disabled softirq context */
+ static struct rt_stat __percpu *rt_stat_array;
+-static int __percpu *rt_stat_avg;
++static struct rt_stat_avg __percpu * rt_avg_array;
+ 
+ static struct sock *tcp_v4_syn_recv_sock_rt_stat(struct sock *sk,
+ 				struct sk_buff *skb, struct request_sock *req,
+@@ -84,25 +89,26 @@ static struct hooker tcp_v6_mapped_hooker = {
+ 
+ static int rt_table_setup(int cpu)
+ {
+-	int i, *avg;
++	int i;
+ 	struct rt_stat *rt_stat;
++	struct rt_stat_avg *rt_avg;
+ 
+-	if (!rt_stat_avg) {
+-		rt_stat_avg = alloc_percpu(int);
+-		if (!rt_stat_avg)
++	if (!rt_avg_array) {
++		rt_avg_array = alloc_percpu(struct rt_stat_avg);
++		if (!rt_avg_array)
+ 			return -ENOMEM;
+ 	}
+ 
+ 	if (!rt_stat_array) {
+ 		rt_stat_array = alloc_percpu(struct rt_stat);
+ 		if (!rt_stat_array) {
+-			free_percpu(rt_stat_avg);
++			free_percpu(rt_avg_array);
+ 			return -ENOMEM;
+ 		}
+ 	}
+ 
+-	avg = per_cpu_ptr(rt_stat_avg, cpu);
+-	*avg = 0;
++	rt_avg = per_cpu_ptr(rt_avg_array, cpu);
++	memset(rt_avg, 0, sizeof(struct rt_stat_avg));
+ 
+ 	rt_stat = per_cpu_ptr(rt_stat_array, cpu);
+ 	for (i = 0; i < RT_TABLE_SIZE; i++) {
+@@ -332,9 +338,21 @@ static void rt_table_update(int cpu, unsigned long now, u32 ip, int interval)
+ 	replace_rt(rt_stat, now, ip, interval, bucket);
+ }
+ 
++static inline void rt_avg_update(unsigned int cpu, s64 interval)
++{
++	struct rt_stat_avg *rt_avg;
++
++	rt_avg = per_cpu_ptr(rt_avg_array, cpu);
++	rt_avg->sum += interval;
++	rt_avg->count++;
++
++	/*
++	 * Don't compute avgerage RT now, leave it to userland.
++	 */
++}
++
+ static void tcp_rt_stat(unsigned int cpu, struct request_sock *req)
+ {
+-	int *avg;
+ 	s64 interval;
+ 	u64 now;
+ 
+@@ -342,12 +360,8 @@ static void tcp_rt_stat(unsigned int cpu, struct request_sock *req)
+ 	interval = (s64)now - (s64)req->ts_incoming;
+ 	if (unlikely(interval < 0))
+ 		return;
+-	avg = per_cpu_ptr(rt_stat_avg, cpu);
+-	if (likely(*avg)) {
+-		(*avg) += interval;
+-		(*avg) >>= 1;
+-	} else
+-		*avg = interval;
++
++	rt_avg_update(cpu, interval);
+ 
+ 	local_bh_disable();
+ 	rt_table_update(cpu, jiffies, inet_rsk(req)->rmt_addr, (int)interval);
+@@ -396,15 +410,16 @@ struct rt_stat_snapshot_t {
+ 	struct completion done;
+ 	struct rt entries[RT_TABLE_SIZE];
+ 	int cursor;
+-	int avg;
++	unsigned long sum;
++	unsigned long count;
+ };
+ 
+-
+ static int rt_stat_do_snapshot(void *p)
+ {
+ 	int cpu;
+ 	struct rt_stat_snapshot_t *s = (struct rt_stat_snapshot_t *)p;
+ 	struct rt_stat *rt_stat;
++	struct rt_stat_avg *rt_avg;
+ 	struct rb_node *node;
+ 	int i;
+ 
+@@ -421,7 +436,9 @@ static int rt_stat_do_snapshot(void *p)
+ 		s->entries[i++] = *rt;
+ 		node = rb_prev(node);
+ 	}
+-	s->avg = *(int *)(per_cpu_ptr(rt_stat_avg, cpu));
++	rt_avg = per_cpu_ptr(rt_avg_array, cpu);
++	s->sum = rt_avg->sum;
++	s->count = rt_avg->count;
+ 
+ 	local_bh_enable();
+ 
+@@ -442,7 +459,9 @@ static struct rt_stat_snapshot_t *rt_stat_snapshot_create(void)
+ 		this_s = per_cpu_ptr(s, cpu);
+ 		memset(&this_s->entries, 0, sizeof(struct rt)*RT_TABLE_SIZE);
+ 		init_completion(&this_s->done);
+-		this_s->avg = this_s->cursor = 0;
++		this_s->sum = 0;
++		this_s->count = 0;
++		this_s->cursor = 0;
+ 	}
+ 
+ 	for_each_online_cpu(cpu) {
+@@ -527,8 +546,8 @@ find_next:
+ 
+ static void *rt_stat_seq_start(struct seq_file *seq, loff_t *pos)
+ {
+-	unsigned long avg;
+-	int cpu, nr_cpus;
++	unsigned long sum, count;
++	int cpu;
+ 	struct rt_stat_snapshot_t *s;
+ 	void *v;
+ 
+@@ -536,21 +555,18 @@ static void *rt_stat_seq_start(struct seq_file *seq, loff_t *pos)
+ 		return NULL;
+ 
+ 	s = seq->private;
+-	nr_cpus = 0;
+-	avg = 0;
++	sum = count = 0;
+ 	for_each_online_cpu(cpu) {
+ 		struct rt_stat_snapshot_t *this_s = per_cpu_ptr(s, cpu);
+-		if (this_s->avg > 0) {
+-			avg += this_s->avg;
+-			++nr_cpus;
+-		}
++		sum += jiffies_to_msecs(this_s->sum);
++		count += this_s->count;
+ 	}
+-	if (nr_cpus > 0)
+-		avg /= nr_cpus;
+ 
+ 	v = rt_stat_snapshot_next(s, pos);
+-	if (v)
+-		seq_printf(seq, "Avg %ums\n", jiffies_to_msecs(avg));
++	if (v) {
++		seq_printf(seq, "Sum: %lums\n", sum);
++		seq_printf(seq, "Count: %lu\n", count);
++	}
+ 	return v;
+ }
+ 
+@@ -630,8 +646,8 @@ static const struct file_operations tcp_ipv4_rt_stat_seq_fops = {
+ 
+ static void percpu_data_clearup(void)
+ {
+-	free_percpu(rt_stat_avg);
+-	rt_stat_avg = NULL;
++	free_percpu(rt_avg_array);
++	rt_avg_array = NULL;
+ 	free_percpu(rt_stat_array);
+ 	rt_stat_array = NULL;
+ }

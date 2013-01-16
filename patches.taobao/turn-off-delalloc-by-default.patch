@@ -1,0 +1,38 @@
+Subject: [PATCH] ext4: disable delayed allocation by default
+
+From: Zheng Liu <wenqing.lz@taobao.com>
+
+This commit disables delayed allocation by default because in product system we
+meet a lot of regressions that caused by this feature, especially latency.
+Delayed allocation makes a huge latency while the dirty pages are written out by
+flusher because application needs to take i_data_sem but it has been taken by
+flusher.
+
+Patch-mainline: in-house
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+---
+ fs/ext4/super.c |   10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+--- a/fs/ext4/super.c
++++ b/fs/ext4/super.c
+@@ -3131,9 +3131,19 @@
+ 	/*
+ 	 * enable delayed allocation by default
+ 	 * Use -o nodelalloc to turn it off
++	 *
++	 * Note from Zheng Liu
++	 * We disable delayed allocation by default because in product system we
++	 * meet a lot of regressions.  Delayed allocation makes a huge latency
++	 * while the dirty data is written out, although it brings us a better
++	 * thoughput.  If we can confirm it is useful for an application, we can
++	 * use an mount option to enable it:
++	 *   mount -t ext4 -o remount,delalloc ${dev} ${mnt}
+ 	 */
++#if 0
+ 	if ((def_mount_opts & EXT4_DEFM_NODELALLOC) == 0)
+ 		set_opt(sbi->s_mount_opt, DELALLOC);
++#endif
+ 
+ 	/*
+ 	 * set default s_li_wait_mult for lazyinit, for the case there is

@@ -1,0 +1,42 @@
+Subject: [PATCH] activate mapped page from inactive list when vm.enable_legacy_mm = 1
+From: Zheng Liu <wenqing.lz@taobao.com>
+
+Patch-mainline: in-house patch
+
+This patch tries to activate a mapped page from inactive list if
+vm.enable_legacy_mm is enabled.  After this patch is applied, apps
+will not need to add PROT_EXEC flag while calling mmap(2).
+
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+---
+ mm/vmscan.c |   12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -583,6 +583,16 @@
+ 	PAGEREF_ACTIVATE,
+ };
+ 
++/*
++ * When vm_enable_legacy_mm is enabled, we will activate the mapped page from
++ * inacitve list in order that apps won't need to add PROT_EXEC flag.
++ */
++static inline int activate_mapped_page(struct page *page)
++{
++	return (vm_enable_legacy_mm &&
++		page_mapped(page) && page_is_file_cache(page));
++}
++
+ static enum page_references page_check_references(struct page *page,
+ 						  struct scan_control *sc)
+ {
+@@ -624,7 +634,7 @@
+ 		/*
+ 		 * Activate file-backed executable pages after first usage.
+ 		 */
+-		if (vm_flags & VM_EXEC)
++		if ((vm_flags & VM_EXEC) || activate_mapped_page(page))
+ 			return PAGEREF_ACTIVATE;
+ 
+ 		return PAGEREF_KEEP;

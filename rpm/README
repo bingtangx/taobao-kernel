@@ -1,0 +1,35 @@
+本地编译
+[完整文档请见 http://baike.corp.taobao.com/index.php/SubmittingKernelPatches]
+
+[注意]：在编译内核之前，请确定内核代码是维护正确的branch下；如果内核是要运行在RHEL6系列操作系统上，则需要切换到6u的branch下；如果是在RHEL5系列操作系统上运行，则需要切换到5u4的branch下。
+
+ scripts/package.py [--buildid {number}]
+这个命令会生成一个叫 taobao-kernel-build 的子目录，里边放置了编译所需的全部文件，在此目录里做rpmbuild即可本地编译生成kernel rpm包。 buildid用来指定生成的RPM包的build number,YUM在安装RPM包时会凭借此序号来判断各个RPM包的新旧(例如,在写作本文时,yum.corp.taobao.com上的内核rpm名是	kernel-2.6.32-95.45a36c6.x86_64.rpm,这表示此RPM为2.6.32内核的第95次build,源码对应于kernel git tree的Commit 45a36c6).如果您只是自己编译使用,则此序号可以随意指定.若没有指定buildid,则默认为1.
+例如：
+
+ rpmbuild -bb kernel.spec --define="_sourcedir `pwd`" --define="_builddir `pwd`" --define="_rpmdir `pwd`/rpm"
+使用--define="_rpmdir `pwd`/rpm"后最终生成的rpm包会放在 `pwd`/rpm/$arch/下。请根据需要更改。
+其他经常用到的参数有:
+
+--with rhel5 指定编译出来的内核会被安装在RHEL5上。如果不加这个参数，则默认是要安装在RHEL6上。
+--without firmware 不出kernel-firmware包（默认要出firmware）
+--with baseonly 只出最主要的kernel，kernel-headers,kernel-devel和kernel-firmware包，可用于验证代码是否正确，编译能否通过，打包是否正确等等。
+--without kdump 不出kernel-kdump包（默认要出kernel-kdump，若已指定--with baseonly则不需要加此开关)
+--without debug 不出kernel-debug包（默认要出kernel-debug，若已指定--with baseonly则不需要加此开关)
+--without headers 不出kernel-headers包 （默认要出kernel-headers）
+--without perftool
+--without perf 不出perf相关的包 （默认要出perf包，若已指定--with baseonly则不需要加此开关）
+--without debuginfo 不出kernel-debuginfo包 （默认要出kernel-debuginfo，若已指定--with baseonly则不需要加此开关)
+--without dracut 指定在生成boot image时new-kernel-pkg不要使用dracut，而是使用mkinitrd （默认使用dracut，而RHEL 5u4根本没有dracut，因此在5u4上编译时必须指定此开关）
+例如，rpm/taobao-kernel-build.sh是ABS编译内核时使用的脚本，其调用的rpmbuild命令如下:
+
+  rpmbuild -bb  --rmsource *.spec --without debuginfo --without dracut --without debug --define="_rpmdir $1/rpm" --define="_builddir $1/taobao-kernel-build" --define="_sourcedir $1/taobao-kernel-build" --define="_tmppath $1/rpm"
+例如，在自己的RHEL 5u4机器上进行本地编译时，如果只是希望验证code base能顺利通过编译，则合适的rpmbuild命令是：
+
+ rpmbuild -bb kernel.spec --with rhel5 --with baseonly --without dracut --define="_sourcedir `pwd`" --define="_builddir `pwd`" --define="_rpmdir `pwd`/rpm"
+如果希望在RHEL 5u4机上生成较完整的各种包，则合适的rpmbuild命令可能是：
+
+ rpmbuild -bb kernel.spec --with rhel5 --without dracut --define="_sourcedir `pwd`" --define="_builddir `pwd`" --define="_rpmdir `pwd`/rpm"
+这表示为了节约编译时间，ABS不需要debuginfo包（暂时没有调试需求），不出debug包（线上不会使用debug内核），不使用dracut来生成/boot/initramfs-xxx（rhel 5u4上根本没有dracut）
+
+后边的若干--define指定了给rpmbuild使用的_rpmdir,_builddir,_sourcedir等环境变量。如果不指定这些rpmbuild默认会去~/rpmbuild目录下找源代码

@@ -1,0 +1,236 @@
+From:	Konstantin Khlebnikov <khlebnikov@openvz.org>
+Subject: [PATCH RFC 1/2] cfq: request-deadline policy
+Date:	Mon, 4 Jul 2011 17:08:38 +0400
+Patch-mainline: In house
+References: 
+
+CFQ is designed for sharing disk bandwidth proportionally between queues and groups
+and for reordering requests to reduce disks seek time. Currently it cannot
+gurantee or estimate latency for individual requests, even if latencies are low
+for almost all requests, some of them can stuck inside scheduler for a long time.
+The fair policy is good as long as someone luckless begins to die due to a timeout.
+
+This patch implements fifo requests dispatching with deadline policy: now cfq
+obliged to dispatch request if it stuck in the queue for more than deadline.
+
+This way now cfq can try to ensure the expected latency of requests execution.
+It is like a safety valve, it should not work all time, but it should keep latency
+in sane range when the scheduler is unable to effectively handle flow of requests,
+especially in cases when the "noop" or "deadline" shows better performance.
+
+deadline can be tuned via /sys/block/<device>/queue/iosched/deadline_{sync,async}
+it by default 2000ms for sync and 4000ms for async requests, use 0 to disable it.
+
+Signed-off-by: Konstantin Khlebnikov <khlebnikov@openvz.org>
+Acked-by: Tao Ma <boyu.mt@taobao.com>
+---
+ block/cfq-iosched.c |   93 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 files changed, 93 insertions(+), 0 deletions(-)
+
+Index: linux-2.6.32-220.7.1.el5/block/cfq-iosched.c
+===================================================================
+--- linux-2.6.32-220.7.1.el5.orig/block/cfq-iosched.c	2012-03-09 12:13:39.926749654 +0800
++++ linux-2.6.32-220.7.1.el5/block/cfq-iosched.c	2012-03-09 12:13:59.578847101 +0800
+@@ -21,6 +21,7 @@
+ /* max queue in one round of service */
+ static const int cfq_quantum = 8;
+ static const int cfq_fifo_expire[2] = { HZ / 4, HZ / 8 };
++static const int cfq_deadline[2] = { HZ * 4, HZ * 2 };
+ /* maximum backwards seek, in KiB */
+ static const int cfq_back_max = 16 * 1024;
+ /* penalty of a backwards seek */
+@@ -117,6 +118,11 @@
+ 	/* fifo list of requests in sort_list */
+ 	struct list_head fifo;
+ 
++	/* cached rq_fifo_time() for first rq in fifo */
++	unsigned long fifo_key;
++	/* cfqd->fifo_tree member */
++	struct rb_node fifo_node;
++
+ 	/* time when queue got scheduled in to dispatch first request. */
+ 	unsigned long dispatch_start;
+ 	unsigned int allocated_slice;
+@@ -226,6 +232,11 @@
+ 	 */
+ 	struct rb_root prio_trees[CFQ_PRIO_LISTS];
+ 
++	/* queues sorted by cfqq->fifo_key */
++	struct rb_root fifo_tree[2];
++	/* leftmost queue in fifo_tree */
++	struct cfq_queue *fifo_first[2];
++
+ 	unsigned int busy_queues;
+ 
+ 	int rq_in_driver;
+@@ -267,6 +278,7 @@
+ 	 */
+ 	unsigned int cfq_quantum;
+ 	unsigned int cfq_fifo_expire[2];
++	unsigned int cfq_deadline[2];
+ 	unsigned int cfq_back_penalty;
+ 	unsigned int cfq_back_max;
+ 	unsigned int cfq_slice[2];
+@@ -1420,6 +1432,46 @@
+ 		cfqq->p_root = NULL;
+ }
+ 
++static void cfq_resort_fifo_tree(struct cfq_data *cfqd, struct cfq_queue *cfqq)
++{
++	struct rb_node **p, *parent;
++	struct cfq_queue *__cfqq;
++	int sync = cfq_cfqq_sync(cfqq);
++	int new_first = 1;
++
++	if (!RB_EMPTY_NODE(&cfqq->fifo_node)) {
++		if (cfqq == cfqd->fifo_first[sync]) {
++			parent = rb_next(&cfqq->fifo_node);
++			__cfqq = rb_entry(parent, struct cfq_queue, fifo_node);
++			cfqd->fifo_first[sync] = parent ? __cfqq : NULL;
++		}
++		rb_erase_init(&cfqq->fifo_node, &cfqd->fifo_tree[sync]);
++	}
++
++	if (list_empty(&cfqq->fifo) || !cfqd->cfq_deadline[sync] ||
++			cfq_class_idle(cfqq))
++		return;
++
++	cfqq->fifo_key = rq_fifo_time(rq_entry_fifo(cfqq->fifo.next));
++
++	parent = NULL;
++	p = &cfqd->fifo_tree[sync].rb_node;
++	while (*p) {
++		parent = *p;
++		__cfqq = rb_entry(parent, struct cfq_queue, fifo_node);
++		if (time_before_eq(__cfqq->fifo_key, cfqq->fifo_key)) {
++			p = &(*p)->rb_right;
++			new_first = 0;
++		} else
++			p = &(*p)->rb_left;
++	}
++	rb_link_node(&cfqq->fifo_node, parent, p);
++	rb_insert_color(&cfqq->fifo_node, &cfqd->fifo_tree[sync]);
++
++	if (new_first)
++		cfqd->fifo_first[sync] = cfqq;
++}
++
+ /*
+  * Update cfqq's position in the service tree.
+  */
+@@ -1446,6 +1498,7 @@
+ 	cfqd->busy_queues++;
+ 
+ 	cfq_resort_rr_list(cfqd, cfqq);
++	cfq_resort_fifo_tree(cfqd, cfqq);
+ }
+ 
+ /*
+@@ -1583,11 +1636,16 @@
+ static void cfq_remove_request(struct request *rq)
+ {
+ 	struct cfq_queue *cfqq = RQ_CFQQ(rq);
++	int fifo_first = rq->queuelist.prev == &cfqq->fifo;
+ 
+ 	if (cfqq->next_rq == rq)
+ 		cfqq->next_rq = cfq_find_next_rq(cfqq->cfqd, cfqq, rq);
+ 
+ 	list_del_init(&rq->queuelist);
++
++	if (fifo_first && !RB_EMPTY_NODE(&cfqq->fifo_node))
++		cfq_resort_fifo_tree(cfqq->cfqd, cfqq);
++
+ 	cfq_del_rq_rb(rq);
+ 
+ 	cfqq->cfqd->rq_queued--;
+@@ -2548,6 +2606,27 @@
+ 	return true;
+ }
+ 
++static bool cfq_dispatch_deadline(struct cfq_data *cfqd, int sync)
++{
++	struct cfq_queue *cfqq = cfqd->fifo_first[sync];
++	unsigned int deadline = cfqd->cfq_deadline[sync];
++
++	if (!cfqq || !deadline)
++		return false;
++
++	if (time_before(jiffies, cfqq->fifo_key + deadline))
++		return false;
++
++	cfq_log_cfqq(cfqd, cfqq, "dispatch deadline");
++	cfq_dispatch_insert(cfqd->queue, rq_entry_fifo(cfqq->fifo.next));
++
++	/* remove empty queue from service tree and expire its slices */
++	if (RB_EMPTY_ROOT(&cfqq->sort_list))
++		__cfq_slice_expired(cfqd, cfqq, 0);
++
++	return true;
++}
++
+ /*
+  * Find the cfqq that we need to service and move a request from that to the
+  * dispatch list
+@@ -2563,6 +2642,9 @@
+ 	if (unlikely(force))
+ 		return cfq_forced_dispatch(cfqd);
+ 
++	if (cfq_dispatch_deadline(cfqd, 1) || cfq_dispatch_deadline(cfqd, 0))
++		return 1;
++
+ 	cfqq = cfq_select_queue(cfqd);
+ 	if (!cfqq)
+ 		return 0;
+@@ -2905,6 +2987,7 @@
+ {
+ 	RB_CLEAR_NODE(&cfqq->rb_node);
+ 	RB_CLEAR_NODE(&cfqq->p_node);
++	RB_CLEAR_NODE(&cfqq->fifo_node);
+ 	INIT_LIST_HEAD(&cfqq->fifo);
+ 
+ 	cfqq->ref = 0;
+@@ -3977,6 +4060,8 @@
+ 	for (i = 0; i < CFQ_PRIO_LISTS; i++)
+ 		cfqd->prio_trees[i] = RB_ROOT;
+ 
++	cfqd->fifo_tree[0] = cfqd->fifo_tree[1] = RB_ROOT;
++
+ 	/*
+ 	 * Our fallback cfqq if cfq_find_alloc_queue() runs into OOM issues.
+ 	 * Grab a permanent reference to it, so that the normal code flow
+@@ -3999,6 +4084,8 @@
+ 	cfqd->cfq_quantum = cfq_quantum;
+ 	cfqd->cfq_fifo_expire[0] = cfq_fifo_expire[0];
+ 	cfqd->cfq_fifo_expire[1] = cfq_fifo_expire[1];
++	cfqd->cfq_deadline[0] = cfq_deadline[0];
++	cfqd->cfq_deadline[1] = cfq_deadline[1];
+ 	cfqd->cfq_back_max = cfq_back_max;
+ 	cfqd->cfq_back_penalty = cfq_back_penalty;
+ 	cfqd->cfq_slice[0] = cfq_slice_async;
+@@ -4075,6 +4162,8 @@
+ SHOW_FUNCTION(cfq_quantum_show, cfqd->cfq_quantum, 0);
+ SHOW_FUNCTION(cfq_fifo_expire_sync_show, cfqd->cfq_fifo_expire[1], 1);
+ SHOW_FUNCTION(cfq_fifo_expire_async_show, cfqd->cfq_fifo_expire[0], 1);
++SHOW_FUNCTION(cfq_deadline_sync_show, cfqd->cfq_deadline[1], 1);
++SHOW_FUNCTION(cfq_deadline_async_show, cfqd->cfq_deadline[0], 1);
+ SHOW_FUNCTION(cfq_back_seek_max_show, cfqd->cfq_back_max, 0);
+ SHOW_FUNCTION(cfq_back_seek_penalty_show, cfqd->cfq_back_penalty, 0);
+ SHOW_FUNCTION(cfq_slice_idle_show, cfqd->cfq_slice_idle, 1);
+@@ -4107,6 +4196,8 @@
+ 		UINT_MAX, 1);
+ STORE_FUNCTION(cfq_fifo_expire_async_store, &cfqd->cfq_fifo_expire[0], 1,
+ 		UINT_MAX, 1);
++STORE_FUNCTION(cfq_deadline_sync_store, &cfqd->cfq_deadline[1], 0, UINT_MAX, 1);
++STORE_FUNCTION(cfq_deadline_async_store, &cfqd->cfq_deadline[0], 0, UINT_MAX, 1);
+ STORE_FUNCTION(cfq_back_seek_max_store, &cfqd->cfq_back_max, 0, UINT_MAX, 0);
+ STORE_FUNCTION(cfq_back_seek_penalty_store, &cfqd->cfq_back_penalty, 1,
+ 		UINT_MAX, 0);
+@@ -4127,6 +4218,8 @@
+ 	CFQ_ATTR(quantum),
+ 	CFQ_ATTR(fifo_expire_sync),
+ 	CFQ_ATTR(fifo_expire_async),
++	CFQ_ATTR(deadline_sync),
++	CFQ_ATTR(deadline_async),
+ 	CFQ_ATTR(back_seek_max),
+ 	CFQ_ATTR(back_seek_penalty),
+ 	CFQ_ATTR(slice_sync),

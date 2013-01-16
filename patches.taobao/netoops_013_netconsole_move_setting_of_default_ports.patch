@@ -1,0 +1,53 @@
+From:   Mike Waychison <mikew@google.com>
+Date:   Mon Apr 25 13:48:51 2011 +0800
+Subject: [PATCH 13/24] netconsole: move setting of default ports.
+Patch-mainline: linux-2.6.32-71.18.1.el6
+
+Signed-off-by: Mike Waychison <mikew@google.com>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+---
+Index: linux-2.6.32-220.0.0.el5/drivers/net/netconsole.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/drivers/net/netconsole.c	2011-12-21 22:41:45.000000000 +0800
++++ linux-2.6.32-220.0.0.el5/drivers/net/netconsole.c	2011-12-21 22:41:45.000000000 +0800
+@@ -67,6 +67,7 @@
+ struct netpoll_targets {
+ 	struct list_head list;
+ 	spinlock_t lock;
++	u16 default_local_port, default_remote_port;
+ #ifdef	CONFIG_NETCONSOLE_DYNAMIC
+ 	struct configfs_subsystem configfs_subsys;
+ #endif
+@@ -160,8 +161,8 @@
+ 	nt->nts = nts;
+ 	nt->np.name = nts->subsys_name;
+ 	strlcpy(nt->np.dev_name, "eth0", IFNAMSIZ);
+-	nt->np.local_port = 6665;
+-	nt->np.remote_port = 6666;
++	nt->np.local_port = nts->default_local_port;
++	nt->np.remote_port = nts->default_remote_port;
+ 	memset(nt->np.remote_mac, 0xff, ETH_ALEN);
+ 	INIT_WORK(&nt->cleanup_work, deferred_netpoll_cleanup);
+ 
+@@ -634,8 +635,8 @@
+ 	nt->nts = nts;
+ 	nt->np.name = nts->subsys_name;
+ 	strlcpy(nt->np.dev_name, "eth0", IFNAMSIZ);
+-	nt->np.local_port = 6665;
+-	nt->np.remote_port = 6666;
++	nt->np.local_port = nts->default_local_port;
++	nt->np.remote_port = nts->default_remote_port;
+ 	memset(nt->np.remote_mac, 0xff, ETH_ALEN);
+ 	INIT_WORK(&nt->cleanup_work, deferred_netpoll_cleanup);
+ 
+@@ -944,6 +945,10 @@
+ static int __init init_netconsole(void)
+ {
+ 	int err;
++
++	targets.default_local_port = 6665;
++	targets.default_remote_port = 6666;
++
+ 	err = register_netpoll_targets("netconsole", &targets, config);
+ 	if (err)
+ 		return err;

@@ -1,0 +1,36 @@
+From dd9e5efe3aa9fc5b1ce484a531ecdba3a7a30bbf Mon Sep 17 00:00:00 2001
+From: Minchan Kim <minchan.kim@gmail.com>
+Date: Tue, 21 Dec 2010 17:24:16 -0800
+Subject: [PATCH] mm/compaction.c: avoid double mem_cgroup_del_lru()
+Patch-mainline: 2.6.37
+
+del_page_from_lru_list() already called mem_cgroup_del_lru().  So we must
+not call it again.  It adds unnecessary overhead.
+
+It was not a runtime bug because the TestClearPageCgroupAcctLRU() early in
+mem_cgroup_del_lru_list() will prevent any double-deletion, etc.
+
+Signed-off-by: Minchan Kim <minchan.kim@gmail.com>
+Acked-by: Balbir Singh <balbir@linux.vnet.ibm.com>
+Acked-by: KAMEZAWA Hiroyuki <kamezawa.hiroyu@jp.fujitsu.com>
+Acked-by: Mel Gorman <mel@csn.ul.ie>
+Reviewed-by: Johannes Weiner <hannes@cmpxchg.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ mm/compaction.c |    1 -
+ 1 files changed, 0 insertions(+), 1 deletions(-)
+
+Index: linux-2.6.32-220.13.1.el5/mm/compaction.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/mm/compaction.c	2012-04-19 17:27:22.339213533 +0800
++++ linux-2.6.32-220.13.1.el5/mm/compaction.c	2012-04-19 17:27:29.011246623 +0800
+@@ -382,7 +382,6 @@
+ 		/* Successfully isolated */
+ 		del_page_from_lru_list(zone, page, page_lru(page));
+ 		list_add(&page->lru, migratelist);
+-		mem_cgroup_del_lru(page);
+ 		cc->nr_migratepages++;
+ 
+ 		/* Avoid isolating too much */

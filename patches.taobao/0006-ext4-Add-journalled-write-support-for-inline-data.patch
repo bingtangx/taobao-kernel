@@ -1,0 +1,174 @@
+From e637cb1be64b08c61c1d0a87556fce661a430d76 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Mon, 21 Nov 2011 22:42:51 +0800
+Subject: [PATCH 06/22] ext4: Add journalled write support for inline data.
+Patch-mainline: in-house
+
+This patch adds journalled write support for inline data
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inline.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inline.c	2012-06-20 00:09:08.279518617 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inline.c	2012-06-20 00:09:11.287533532 +0800
+@@ -720,6 +720,30 @@
+ 	return copied;
+ }
+ 
++struct buffer_head *
++ext4_journalled_write_inline_data(struct inode *inode,
++				  unsigned len,
++				  struct page *page)
++{
++	int ret;
++	void *kaddr;
++	struct ext4_iloc iloc;
++
++	ret = ext4_get_inode_loc(inode, &iloc);
++	if (ret) {
++		ext4_std_error(inode->i_sb, ret);
++		return NULL;
++	}
++
++	down_write(&EXT4_I(inode)->xattr_sem);
++	kaddr = kmap_atomic(page, KM_USER0);
++	ext4_write_inline_data(inode, &iloc, kaddr, 0, len);
++	kunmap_atomic(kaddr, KM_USER0);
++	up_write(&EXT4_I(inode)->xattr_sem);
++
++	return iloc.bh;
++}
++
+ 
+ int ext4_destroy_inline_data(handle_t *handle, struct inode *inode)
+ {
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:09:08.279518617 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:09:11.291533558 +0800
+@@ -1967,16 +1967,21 @@
+ 	from = pos & (PAGE_CACHE_SIZE - 1);
+ 	to = from + len;
+ 
+-	if (copied < len) {
+-		if (!PageUptodate(page))
+-			copied = 0;
+-		page_zero_new_buffers(page, from+copied, to);
+-	}
++	if (ext4_has_inline_data(inode))
++		copied = ext4_write_inline_data_end(inode, pos, len,
++						    copied, page);
++	else {
++		if (copied < len) {
++			if (!PageUptodate(page))
++				copied = 0;
++			page_zero_new_buffers(page, from+copied, to);
++		}
+ 
+-	ret = walk_page_buffers(handle, page_buffers(page), from,
+-				to, &partial, write_end_fn);
+-	if (!partial)
+-		SetPageUptodate(page);
++		ret = walk_page_buffers(handle, page_buffers(page), from,
++					to, &partial, write_end_fn);
++		if (!partial)
++			SetPageUptodate(page);
++	}
+ 	new_i_size = pos + copied;
+ 	if (new_i_size > inode->i_size)
+ 		i_size_write(inode, pos+copied);
+@@ -2839,15 +2844,23 @@
+ {
+ 	struct address_space *mapping = page->mapping;
+ 	struct inode *inode = mapping->host;
+-	struct buffer_head *page_bufs;
++	struct buffer_head *page_bufs = NULL;
+ 	handle_t *handle = NULL;
+ 	int ret = 0;
+ 	int err;
++	struct buffer_head *inode_bh = NULL;
+ 
+ 	ClearPageChecked(page);
+-	page_bufs = page_buffers(page);
+-	BUG_ON(!page_bufs);
+-	walk_page_buffers(handle, page_bufs, 0, len, NULL, bget_one);
++
++	if (ext4_has_inline_data(inode)) {
++		BUG_ON(page->index != 0);
++		BUG_ON(len > ext4_get_max_inline_size(inode));
++		inode_bh = ext4_journalled_write_inline_data(inode, len, page);
++	} else {
++		page_bufs = page_buffers(page);
++		BUG_ON(!page_bufs);
++		walk_page_buffers(handle, page_bufs, 0, len, NULL, bget_one);
++	}
+ 	/* As soon as we unlock the page, it can go away, but we have
+ 	 * references to buffers so we are safe */
+ 	unlock_page(page);
+@@ -2858,20 +2871,30 @@
+ 		goto out;
+ 	}
+ 
+-	ret = walk_page_buffers(handle, page_bufs, 0, len, NULL,
+-				do_journal_get_write_access);
++	if (ext4_has_inline_data(inode) && inode_bh) {
++		ret = ext4_journal_get_write_access(handle, inode_bh);
++
++		err = ext4_handle_dirty_metadata(handle, inode, inode_bh);
++
++	} else {
++		ret = walk_page_buffers(handle, page_bufs, 0, len, NULL,
++					do_journal_get_write_access);
++
++		err = walk_page_buffers(handle, page_bufs, 0, len, NULL,
++					write_end_fn);
++	}
+ 
+-	err = walk_page_buffers(handle, page_bufs, 0, len, NULL,
+-				write_end_fn);
+ 	if (ret == 0)
+ 		ret = err;
+ 	err = ext4_journal_stop(handle);
+ 	if (!ret)
+ 		ret = err;
+ 
+-	walk_page_buffers(handle, page_bufs, 0, len, NULL, bput_one);
++	if (!ext4_has_inline_data(inode))
++		walk_page_buffers(handle, page_bufs, 0, len, NULL, bput_one);
+ 	ext4_set_inode_state(inode, EXT4_STATE_JDATA);
+ out:
++	brelse(inode_bh);
+ 	return ret;
+ }
+ 
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/xattr.h
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/xattr.h	2012-06-20 00:09:08.283518637 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/xattr.h	2012-06-20 00:09:11.291533558 +0800
+@@ -148,6 +148,10 @@
+ 				      loff_t pos, unsigned len,
+ 				      unsigned copied,
+ 				      struct page *page);
++extern struct buffer_head *
++ext4_journalled_write_inline_data(struct inode *inode,
++				  unsigned len,
++				  struct page *page);
+ # else  /* CONFIG_EXT4_FS_XATTR */
+ 
+ static inline int
+@@ -285,6 +289,14 @@
+ {
+ 	return 0;
+ }
++
++static inline struct buffer_head *
++ext4_journalled_write_inline_data(struct inode *inode,
++				  unsigned len,
++				  struct page *page)
++{
++	return NULL;
++}
+ # endif  /* CONFIG_EXT4_FS_XATTR */
+ 
+ #ifdef CONFIG_EXT4_FS_SECURITY

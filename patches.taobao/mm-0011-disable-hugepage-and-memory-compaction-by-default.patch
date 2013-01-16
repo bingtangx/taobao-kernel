@@ -1,0 +1,50 @@
+Author: Coly Li <bosong.ly@taobao.com>
+From:   Coly Li <bosong.ly@taobao.com>
+Subject: Disable hugepage and memory compaction by default
+Date:   Fri Jul  1 21:30:15 CST 2011
+Patch-mainline: in-house
+
+In Yunti-1 Hadoop, very high system CPU time is observed when memory load is high.
+From perf report, we find most of the system CPU time is consumed in spin_lock of
+memory compaction path. For 2.6.18 kernel, there is not transparent hugepage, so
+the compaction cost which increases system load avg and make job slower is not
+acceptable by platform engineering team.
+
+The solution is, we disable transparent hugepage and memory compaction by default,
+so the kernel memory compaction behavior of 2.6.32 kernel can be identified as
+2.6.18. For applications do wnat the features, people can enable them via sysfs:
+/sys/kernel/mm/redhat_transparent_hugepage/enable
+/sys/kernel/mm/redhat_transparent_hugepage/defrag
+
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ redhat-kernel-source/linux-2.6.32/mm/huge_memory.c |   14 ++++++--------
+ 1 files changed, 6 insertions(+), 8 deletions(-)
+
+diff --git a/mm/huge_memory.c b/mm/huge_memory.c
+index 6ac2216..cecbefb 100644
+--- a/mm/huge_memory.c
++++ b/mm/huge_memory.c
+@@ -21,16 +21,14 @@
+ #include "internal.h"
+ 
+ /*
+- * By default transparent hugepage support is enabled for all mappings
+- * and khugepaged scans all mappings. Defrag is only invoked by
+- * khugepaged hugepage allocations and by page faults inside
+- * MADV_HUGEPAGE regions to avoid the risk of slowing down short lived
+- * allocations.
++ * By default transparent hugepage support is disabled, we only enable
++ * transparent and defrag explicitly when application really needs the
++ * features. -- bosong.ly@taobao.com
+  */
+ unsigned long transparent_hugepage_flags __read_mostly =
+-	(1<<TRANSPARENT_HUGEPAGE_FLAG)|
+-	(1<<TRANSPARENT_HUGEPAGE_DEFRAG_FLAG)|
+-	(1<<TRANSPARENT_HUGEPAGE_DEFRAG_KHUGEPAGED_FLAG);
++	(0<<TRANSPARENT_HUGEPAGE_FLAG)|
++	(0<<TRANSPARENT_HUGEPAGE_DEFRAG_FLAG)|
++	(0<<TRANSPARENT_HUGEPAGE_DEFRAG_KHUGEPAGED_FLAG);
+ 
+ /* default scan 8*512 pte (or vmas) every 30 second */
+ static unsigned int khugepaged_pages_to_scan __read_mostly = HPAGE_PMD_NR*8;

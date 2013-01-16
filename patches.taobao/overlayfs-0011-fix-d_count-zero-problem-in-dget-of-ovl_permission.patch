@@ -1,0 +1,60 @@
+From: Robin Dong <sanbai@taobao.com>
+Date: Wed, 22 Feb 2012 18:39:10 +0800
+Subject: [PATCH 11/11] ovlayfs: fix d_count zero problem in ovl_permission
+Patch-mainline: in house patch
+
+Imaging using ext4 as upperdir which has a file "hello" (executable) and lowdir is
+totally empty.
+
+1. mount -t overlayfs overlayfs -o lowerdir=/lower,upperdir=/upper /overlay
+2. cd /overlay
+3. ln hello bye
+
+then the overlayfs code will call vfs_link to create a real ext4
+dentry for "bye" and create
+a new overlayfs dentry point to overlayfs inode (which standed for
+"hello"). 
+
+Then we run "./hello", the d_count of "hello"
+dentry become 1 (by __d_lookup), and ovl_permission will try to get
+the alias dentry of this inode:
+
+	alias = list_entry(inode->i_dentry.next, struct dentry, d_alias);
+	dget(alias);
+
+but it will find out "bye" dentry and its d_count is zero (because we
+get the inode from another dentry--"hello"),  then it will report BUG_ON
+when trying to dget a zero d_count dentry in 2.6.32 kernel.
+
+Therefore, we should traverse all alias of inode to find
+a non-zero-d_count dentry.
+
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ fs/overlayfs/inode.c |    9 +++++++--
+ 1 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/fs/overlayfs/inode.c b/fs/overlayfs/inode.c
+index 8ffdcab..f81932a 100644
+--- a/fs/overlayfs/inode.c
++++ b/fs/overlayfs/inode.c
+@@ -66,8 +66,13 @@ int ovl_permission(struct inode *inode, int mask)
+ 			spin_unlock(&inode->i_lock);
+ 			return -ENOENT;
+ 		}
+-		alias = list_entry(inode->i_dentry.next,
+-				   struct dentry, d_alias);
++
++		list_for_each_entry(alias, &inode->i_dentry, d_alias) {
++			if (atomic_read(&alias->d_count))
++				break;
++		}
++		WARN_ON(!atomic_read(&alias->d_count));
++
+ 		dget(alias);
+ 		spin_unlock(&inode->i_lock);
+ 		oe = alias->d_fsdata;
+-- 
+1.7.3.2
+

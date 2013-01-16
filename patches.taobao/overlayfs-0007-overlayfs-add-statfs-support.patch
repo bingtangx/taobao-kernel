@@ -1,0 +1,59 @@
+From: Andy Whitcroft <apw@canonical.com>
+Date: Tue, 21 Feb 2012 16:15:12 +0800
+Subject: [PATCH 7/11] overlayfs: add statfs support
+Patch-mainline: in house patch
+
+Add support for statfs to the overlayfs filesystem.  As the upper layer
+is the target of all write operations assume that the space in that
+filesystem is the space in the overlayfs.  There will be some inaccuracy as
+overwriting a file will copy it up and consume space we were not expecting,
+but it is better than nothing.
+
+Use the upper layer dentry and mount from the overlayfs root inode,
+passing the statfs call to that filesystem.
+
+Signed-off-by: Andy Whitcroft <apw@canonical.com>
+Signed-off-by: Miklos Szeredi <mszeredi@suse.cz>
+Signed-off-by: Robin Dong <sanbai@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ fs/overlayfs/super.c |   20 ++++++++++++++++++++
+ 1 files changed, 20 insertions(+), 0 deletions(-)
+
+diff --git a/fs/overlayfs/super.c b/fs/overlayfs/super.c
+index 71cd541..bb0cf23 100644
+--- a/fs/overlayfs/super.c
++++ b/fs/overlayfs/super.c
+@@ -404,9 +404,29 @@ static int ovl_remount_fs(struct super_block *sb, int *flagsp, char *data)
+ 		return mnt_want_write(ufs->upper_mnt);
+ }
+ 
++/**
++ * ovl_statfs
++ * @sb: The overlayfs super block
++ * @buf: The struct kstatfs to fill in with stats
++ *
++ * Get the filesystem statistics.  As writes always target the upper layer
++ * filesystem pass the statfs to the same filesystem.
++ */
++static int ovl_statfs(struct dentry *dentry, struct kstatfs *buf)
++{
++	struct dentry *root_dentry = dentry->d_sb->s_root;
++	struct path path;
++	ovl_path_upper(root_dentry, &path);
++
++	if (!path.dentry->d_sb->s_op->statfs)
++		return -ENOSYS;
++	return path.dentry->d_sb->s_op->statfs(path.dentry, buf);
++}
++
+ static const struct super_operations ovl_super_operations = {
+ 	.put_super	= ovl_put_super,
+ 	.remount_fs	= ovl_remount_fs,
++	.statfs		= ovl_statfs,
+ };
+ 
+ struct ovl_config {
+-- 
+1.7.3.2
+

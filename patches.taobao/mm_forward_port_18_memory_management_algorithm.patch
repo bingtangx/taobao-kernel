@@ -1,0 +1,175 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH v5] mm: forward port 2.6.18 memory management algorithm
+Patch-mainline: in house patch
+References: 
+
+We meet a huge regression in TFS when we upgrade the kernel from 2.6.18 to
+2.6.32 because in 2.6.32 kernel it perfers to reclaim mapped file page rather
+than file page cache.  So we need to forward port 18's memory management
+algorithm to handle this problem.
+
+In 2.6.18 kernel, it doesn't try to reclaim mapped file page until
+'swap_tendency >= 100'.  Meanwhile every direct page reclaim, it scans active
+list and try to reclaim file page cache.  So file page cache is easy to be
+reclaimed.  That is the reason that in 2.6.18 kernel mapped file page is not
+easy to be reclaimed.
+
+We can use vm.enable_legacy_mm sysctl parameter to switch on/off this
+algorithm.
+
+If we want to get better performance, we'd better use mmap(2) with PROT_EXEC
+flag because page can be activated when the kernel scans inactive list for
+the first time.
+
+v5 <- v4:
+ * update 'nr_rotated' accouting
+
+v4 <- v3:
+ * consider memcg
+
+v3 <- v2:
+ * the algorithm is useful only when the page is a mapped file page and memcg
+   is not used
+ * rework the code to avoid to call page_referenced twice
+ * rework zone_is_near_oom() when we accumulate the sum of anon and file
+   pages
+
+v2 <- v1:
+ * add zone_is_near_oom function to avoid oom
+
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+Acked-by: 
+
+---
+
+ include/linux/sysctl.h |    1 
+ kernel/sysctl.c        |   12 ++++++++++
+ mm/vmscan.c            |   58 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 70 insertions(+), 1 deletion(-)
+
+--- a/include/linux/sysctl.h
++++ b/include/linux/sysctl.h
+@@ -206,6 +206,7 @@ enum
+ 	VM_MIN_SLAB=35,		 /* Percent pages ignored by zone reclaim */
+ 	VM_ENABLE_CONTEXT_READAHEAD=36, /* Decide whether to do context readahead or not */
+ 	VM_MLOCK_FLUSH_PAGEVEC=37,	/* switch of flushing lru pagevec in mlock */
++	VM_ENABLE_LEGACY_MM=38,	/* enable 2.6.18 kernel mm algorithm */
+ };
+ 
+ 
+--- a/kernel/sysctl.c
++++ b/kernel/sysctl.c
+@@ -98,6 +98,7 @@ extern int sysctl_nr_trim_pages;
+ extern int kexec_load_disabled;
+ extern int sysctl_enable_cnx_ra;
+ extern int sysctl_mlock_flush_pagevec;
++extern int vm_enable_legacy_mm;
+ 
+ int exec_shield = (1<<0);
+ /* exec_shield is a bitmask:
+@@ -1616,6 +1617,17 @@ static struct ctl_table vm_table[] = {
+ 		.extra1		= &zero,
+ 		.extra2		= &one,
+ 	},
++	{
++		.ctl_name	= VM_ENABLE_LEGACY_MM,
++		.procname	= "enable_legacy_mm",
++		.data		= &vm_enable_legacy_mm,
++		.maxlen		= sizeof(int),
++		.mode		= 0644,
++		.proc_handler	= &proc_dointvec_minmax,
++		.strategy	= &sysctl_intvec,
++		.extra1		= &zero,
++		.extra2		= &one,
++	},
+ /*
+  * NOTE: do not add new entries to this table unless you have read
+  * Documentation/sysctl/ctl_unnumbered.txt
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -131,6 +131,8 @@ struct scan_control {
+ int vm_swappiness = 60;
+ long vm_total_pages;	/* The total number of pages which the VM controls */
+ 
++int vm_enable_legacy_mm = 0;	/* enable 2.6.18 mm algorithm */
++
+ static LIST_HEAD(shrinker_list);
+ static DECLARE_RWSEM(shrinker_rwsem);
+ 
+@@ -1331,6 +1333,18 @@ static inline void note_zone_scanning_pr
+ 		zone->prev_priority = priority;
+ }
+ 
++static inline int zone_is_near_oom(struct zone *zone, struct scan_control *sc)
++{
++	unsigned long anon, file;
++
++	anon  = zone_nr_lru_pages(zone, sc, LRU_ACTIVE_ANON) +
++		zone_nr_lru_pages(zone, sc, LRU_INACTIVE_ANON);
++	file  = zone_nr_lru_pages(zone, sc, LRU_ACTIVE_FILE) +
++		zone_nr_lru_pages(zone, sc, LRU_INACTIVE_FILE);
++
++	return zone->pages_scanned >= (anon + file) * 3;
++}
++
+ /*
+  * This moves pages from the active list to the inactive list.
+  *
+@@ -1394,6 +1408,28 @@ static void shrink_active_list(unsigned 
+ 	struct page *page;
+ 	struct zone_reclaim_stat *reclaim_stat = get_reclaim_stat(zone, sc);
+ 	unsigned long nr_rotated = 0;
++	int reclaim_mapped = 0;
++
++	/* XXX: we only use 18's page reclaim in global memcg */
++	if (vm_enable_legacy_mm && sc->may_swap && scanning_global_lru(sc)) {
++		long mapped_ratio;
++		long distress;
++		long swap_tendency;
++
++		if (zone_is_near_oom(zone, sc))
++			goto force_reclaim_mapped;
++
++		distress = 100 >> min(zone->prev_priority, priority);
++		mapped_ratio = ((global_page_state(NR_FILE_MAPPED) +
++				global_page_state(NR_ANON_PAGES)) * 100) /
++					vm_total_pages;
++		swap_tendency = mapped_ratio / 2 +
++				distress + sc->swappiness;
++
++		if (swap_tendency >= 100)
++force_reclaim_mapped:
++			reclaim_mapped = 1;
++	}
+ 
+ 	lru_add_drain();
+ 	spin_lock_irq(&zone->lru_lock);
+@@ -1427,7 +1463,27 @@ static void shrink_active_list(unsigned 
+ 			continue;
+ 		}
+ 
+-		if (page_referenced(page, 0, sc->mem_cgroup, &vm_flags)) {
++		/*
++		 * When we enable legacy mm algorithm, Fengguang's patch shall
++		 * be disabled.
++		 */
++		if (vm_enable_legacy_mm && page_mapped(page) &&
++		    page_is_file_cache(page) && scanning_global_lru(sc)) {
++			/*
++			 * Here it causes a miss accouting, but we don't have a
++			 * good idea to count referenced pages in this case.
++			 */
++			if (!reclaim_mapped) {
++				list_add(&page->lru, &l_active);
++				continue;
++			} else if (page_referenced(page, 0, sc->mem_cgroup,
++						   &vm_flags)) {
++				nr_rotated += hpage_nr_pages(page);
++				list_add(&page->lru, &l_active);
++				continue;
++			}
++		} else if (page_referenced(page, 0,
++					   sc->mem_cgroup, &vm_flags)) {
+ 			nr_rotated += hpage_nr_pages(page);
+ 			/*
+ 			 * Identify referenced, file-backed active pages and

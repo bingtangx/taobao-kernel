@@ -1,0 +1,91 @@
+From 581ff9a3868cf5d03c451d68754db5a2ceeb73a5 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Tue, 27 Mar 2012 07:59:33 -0400
+Subject: [PATCH] block: Make cfq_target_latency tunable through sysfs.
+Patch-mainline: Will be committed in upstream soon.
+References: 
+
+In cfq, when we calculate a time slice for a process(or a cfqq to
+be precise), we have to consider the cfq_target_latency so that all the
+sync request have an estimated latency(300ms) and it is controlled by
+cfq_target_latency. But in some hadoop test, we have found that if
+there are many processes doing sequential read(24 for example), the
+throughput is bad because every process can only work for about 25ms
+and switch. That leads to a higher disk seek. We can achive the good
+throughput by setting low_latency=0, but then some read's latency is
+too much for the application.
+
+So this patch makes cfq_target_latency tunable through sysfs so that
+we can tune it and find some magic number which is not bad for both
+the throughput and the read latency.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+Acked-by: 
+
+---
+ block/cfq-iosched.c |   10 ++++++++--
+ 1 files changed, 8 insertions(+), 2 deletions(-)
+
+Index: linux-2.6.32-220.13.1.el5/block/cfq-iosched.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/block/cfq-iosched.c	2012-04-19 17:30:18.052084867 +0800
++++ linux-2.6.32-220.13.1.el5/block/cfq-iosched.c	2012-04-19 17:30:18.944089270 +0800
+@@ -287,6 +287,7 @@
+ 	unsigned int cfq_group_idle;
+ 	unsigned int cfq_latency;
+ 	unsigned int cfq_group_isolation;
++	unsigned int cfq_target_latency;
+ 
+ 	struct list_head cic_list;
+ 
+@@ -584,7 +585,7 @@
+ {
+ 	struct cfq_rb_root *st = &cfqd->grp_service_tree;
+ 
+-	return cfq_target_latency * cfqg->weight / st->total_weight;
++	return cfqd->cfq_target_latency * cfqg->weight / st->total_weight;
+ }
+ 
+ static inline void
+@@ -2298,7 +2299,8 @@
+ 		 * to have higher weight. A more accurate thing would be to
+ 		 * calculate system wide asnc/sync ratio.
+ 		 */
+-		tmp = cfq_target_latency * cfqg_busy_async_queues(cfqd, cfqg);
++		tmp = cfqd->cfq_target_latency *
++			cfqg_busy_async_queues(cfqd, cfqg);
+ 		tmp = tmp/cfqd->busy_queues;
+ 		slice = min_t(unsigned, slice, tmp);
+ 
+@@ -4090,6 +4092,7 @@
+ 	cfqd->cfq_back_penalty = cfq_back_penalty;
+ 	cfqd->cfq_slice[0] = cfq_slice_async;
+ 	cfqd->cfq_slice[1] = cfq_slice_sync;
++	cfqd->cfq_target_latency = cfq_target_latency;
+ 	cfqd->cfq_slice_async_rq = cfq_slice_async_rq;
+ 	cfqd->cfq_slice_idle = cfq_slice_idle;
+ 	cfqd->cfq_group_idle = cfq_group_idle;
+@@ -4173,6 +4176,7 @@
+ SHOW_FUNCTION(cfq_slice_async_rq_show, cfqd->cfq_slice_async_rq, 0);
+ SHOW_FUNCTION(cfq_low_latency_show, cfqd->cfq_latency, 0);
+ SHOW_FUNCTION(cfq_group_isolation_show, cfqd->cfq_group_isolation, 0);
++SHOW_FUNCTION(cfq_target_latency_show, cfqd->cfq_target_latency, 1);
+ #undef SHOW_FUNCTION
+ 
+ #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
+@@ -4209,6 +4213,7 @@
+ 		UINT_MAX, 0);
+ STORE_FUNCTION(cfq_low_latency_store, &cfqd->cfq_latency, 0, 1, 0);
+ STORE_FUNCTION(cfq_group_isolation_store, &cfqd->cfq_group_isolation, 0, 1, 0);
++STORE_FUNCTION(cfq_target_latency_store, &cfqd->cfq_target_latency, 1, UINT_MAX, 1);
+ #undef STORE_FUNCTION
+ 
+ #define CFQ_ATTR(name) \
+@@ -4229,6 +4234,7 @@
+ 	CFQ_ATTR(group_idle),
+ 	CFQ_ATTR(low_latency),
+ 	CFQ_ATTR(group_isolation),
++	CFQ_ATTR(target_latency),
+ 	__ATTR_NULL
+ };
+ 

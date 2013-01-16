@@ -1,0 +1,61 @@
+From 35ae66e0a09ab70ed588e65f26b4c725cd1656b6 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Fri, 5 Aug 2011 09:37:10 +0200
+Subject: [PATCH] block: Make rq_affinity = 1 work as expected
+Patch-mainline: already
+
+Commit 5757a6d76c introduced a new rq_affinity = 2 so as to make
+the request completed in the __make_request cpu. But it makes the
+old rq_affinity = 1 not work any more. The root cause is that
+if the 'cpu' and 'req->cpu' is in the same group and cpu != req->cpu,
+ccpu will be the same as group_cpu, so the completion will be
+excuted in the 'cpu' not 'group_cpu'.
+
+This patch fix problem by simpling removing group_cpu and the codes
+are more explicit now. If ccpu == cpu, we complete in cpu, otherwise
+we raise_blk_irq to ccpu.
+
+Cc: Christoph Hellwig <hch@infradead.org>
+Cc: Roland Dreier <roland@purestorage.com>
+Cc: Dan Williams <dan.j.williams@intel.com>
+Cc: Jens Axboe <jaxboe@fusionio.com>
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+Reviewed-by: Shaohua Li <shaohua.li@intel.com>
+Signed-off-by: Jens Axboe <jaxboe@fusionio.com>
+---
+ block/blk-softirq.c |    8 +++-----
+ 1 files changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/block/blk-softirq.c b/block/blk-softirq.c
+index 475fab8..487addc 100644
+--- a/block/blk-softirq.c
++++ b/block/blk-softirq.c
+@@ -103,7 +103,7 @@ static struct notifier_block __cpuinitdata blk_cpu_notifier = {
+ 
+ void __blk_complete_request(struct request *req)
+ {
+-	int ccpu, cpu, group_cpu = NR_CPUS;
++	int ccpu, cpu;
+ 	struct request_queue *q = req->q;
+ 	unsigned long flags;
+ 
+@@ -117,14 +117,12 @@ void __blk_complete_request(struct request *req)
+ 	 */
+ 	if (test_bit(QUEUE_FLAG_SAME_COMP, &q->queue_flags) && req->cpu != -1) {
+ 		ccpu = req->cpu;
+-		if (!test_bit(QUEUE_FLAG_SAME_FORCE, &q->queue_flags)) {
++		if (!test_bit(QUEUE_FLAG_SAME_FORCE, &q->queue_flags))
+ 			ccpu = blk_cpu_to_group(ccpu);
+-			group_cpu = blk_cpu_to_group(cpu);
+-		}
+ 	} else
+ 		ccpu = cpu;
+ 
+-	if (ccpu == cpu || ccpu == group_cpu) {
++	if (ccpu == cpu) {
+ 		struct list_head *list;
+ do_local:
+ 		list = &__get_cpu_var(blk_cpu_done);
+-- 
+1.7.4.4
+

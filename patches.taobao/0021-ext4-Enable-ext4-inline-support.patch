@@ -1,0 +1,50 @@
+From db2a21d036834c326a901b88c5b223854022c621 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Mon, 12 Dec 2011 17:24:57 +0800
+Subject: [PATCH 21/22] ext4: Enable ext4 inline support.
+Patch-mainline: in house
+
+This patch enables ext4 inline support.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index b3ad80d..4239a1c 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1347,6 +1347,9 @@ EXT4_INODE_BIT_FNS(state, state_flags)
+ #define EXT4_FEATURE_INCOMPAT_64BIT		0x0080
+ #define EXT4_FEATURE_INCOMPAT_MMP               0x0100
+ #define EXT4_FEATURE_INCOMPAT_FLEX_BG		0x0200
++#define EXT4_FEATURE_INCOMPAT_EA_INODE		0x0400 /* EA in inode */
++#define EXT4_FEATURE_INCOMPAT_DIRDATA		0x1000 /* data in dirent */
++#define EXT4_FEATURE_INCOMPAT_INLINEDATA	0x2000 /* data in inode */
+ 
+ #define EXT4_FEATURE_COMPAT_SUPP	EXT2_FEATURE_COMPAT_EXT_ATTR
+ #define EXT4_FEATURE_INCOMPAT_SUPP	(EXT4_FEATURE_INCOMPAT_FILETYPE| \
+@@ -1354,7 +1357,9 @@ EXT4_INODE_BIT_FNS(state, state_flags)
+ 					 EXT4_FEATURE_INCOMPAT_META_BG| \
+ 					 EXT4_FEATURE_INCOMPAT_EXTENTS| \
+ 					 EXT4_FEATURE_INCOMPAT_64BIT| \
+-					 EXT4_FEATURE_INCOMPAT_FLEX_BG)
++					 EXT4_FEATURE_INCOMPAT_FLEX_BG| \
++					 EXT4_FEATURE_INCOMPAT_MMP |	\
++					 EXT4_FEATURE_INCOMPAT_INLINEDATA)
+ #define EXT4_FEATURE_RO_COMPAT_SUPP	(EXT4_FEATURE_RO_COMPAT_SPARSE_SUPER| \
+ 					 EXT4_FEATURE_RO_COMPAT_LARGE_FILE| \
+ 					 EXT4_FEATURE_RO_COMPAT_GDT_CSUM| \
+diff --git a/fs/ext4/ialloc.c b/fs/ext4/ialloc.c
+index 41d8905..766dead 100644
+--- a/fs/ext4/ialloc.c
++++ b/fs/ext4/ialloc.c
+@@ -1040,6 +1040,10 @@ got:
+ 
+ 	ei->i_extra_isize = EXT4_SB(sb)->s_want_extra_isize;
+ 
++	ei->i_inline_off = 0;
++	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_INLINEDATA))
++		ext4_set_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
++
+ 	ret = inode;
+ 	if (vfs_dq_alloc_inode(inode)) {
+ 		err = -EDQUOT;

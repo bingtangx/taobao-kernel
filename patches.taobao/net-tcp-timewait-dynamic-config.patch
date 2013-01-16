@@ -1,0 +1,324 @@
+From: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Subject: net: Change time_wait timeout value dynamically
+Patch-mainline: not-upstream-yet
+References: 
+
+USAGE:
+# cat /proc/sys/net/ipv4/tcp_tw_timeout
+60
+# echo 30 > /proc/sys/net/ipv4/tcp_tw_timeout
+# cat /proc/sys/net/ipv4/tcp_tw_timeout
+30 
+
+the range of the legal value is <1,600> second(s)
+
+Signed-off-by: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+Index: linux-2.6.32-220.13.1.el5/include/linux/sysctl.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/sysctl.h	2012-04-19 17:24:49.102453670 +0800
++++ linux-2.6.32-220.13.1.el5/include/linux/sysctl.h	2012-04-19 17:26:48.727046858 +0800
+@@ -434,6 +434,7 @@
+ 	NET_TCP_ALLOWED_CONG_CONTROL=123,
+ 	NET_TCP_MAX_SSTHRESH=124,
+ 	NET_TCP_FRTO_RESPONSE=125,
++	NET_IPV4_TCP_TW_TIMEOUT=126,
+ };
+ 
+ enum {
+@@ -988,6 +989,8 @@
+ 				void __user *, size_t *, loff_t *);
+ extern int proc_dointvec_jiffies(struct ctl_table *, int,
+ 				 void __user *, size_t *, loff_t *);
++extern int proc_dointvec_jiffies_minmax(struct ctl_table *, int,
++					void __user *, size_t *, loff_t *);
+ extern int proc_dointvec_userhz_jiffies(struct ctl_table *, int,
+ 					void __user *, size_t *, loff_t *);
+ extern int proc_dointvec_ms_jiffies(struct ctl_table *, int,
+Index: linux-2.6.32-220.13.1.el5/include/net/tcp.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/net/tcp.h	2012-04-19 17:24:49.110453714 +0800
++++ linux-2.6.32-220.13.1.el5/include/net/tcp.h	2012-04-19 17:26:48.727046858 +0800
+@@ -209,6 +209,7 @@
+ extern int sysctl_tcp_window_scaling;
+ extern int sysctl_tcp_sack;
+ extern int sysctl_tcp_fin_timeout;
++extern int sysctl_tcp_tw_timeout;
+ extern int sysctl_tcp_keepalive_time;
+ extern int sysctl_tcp_keepalive_probes;
+ extern int sysctl_tcp_keepalive_intvl;
+Index: linux-2.6.32-220.13.1.el5/kernel/sysctl_check.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/kernel/sysctl_check.c	2012-04-19 17:24:49.178454052 +0800
++++ linux-2.6.32-220.13.1.el5/kernel/sysctl_check.c	2012-04-19 17:26:48.727046858 +0800
+@@ -323,6 +323,7 @@
+ 	{ NET_IPV4_TCP_RETRIES1,		"tcp_retries1" },
+ 	{ NET_IPV4_TCP_RETRIES2,		"tcp_retries2" },
+ 	{ NET_IPV4_TCP_FIN_TIMEOUT,		"tcp_fin_timeout" },
++	{ NET_IPV4_TCP_TW_TIMEOUT,		"tcp_tw_timeout" },
+ 	/* NET_IPV4_IP_MASQ_DEBUG unused */
+ 	{ NET_TCP_SYNCOOKIES,			"tcp_syncookies" },
+ 	{ NET_TCP_STDURG,			"tcp_stdurg" },
+@@ -1496,6 +1497,7 @@
+ 			    (table->proc_handler == proc_dointvec) ||
+ 			    (table->proc_handler == proc_dointvec_minmax) ||
+ 			    (table->proc_handler == proc_dointvec_jiffies) ||
++			    (table->proc_handler == proc_dointvec_jiffies_minmax) ||
+ 			    (table->proc_handler == proc_dointvec_userhz_jiffies) ||
+ 			    (table->proc_handler == proc_dointvec_ms_jiffies) ||
+ 			    (table->proc_handler == proc_doulongvec_minmax) ||
+Index: linux-2.6.32-220.13.1.el5/net/ipv4/sysctl_net_ipv4.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/net/ipv4/sysctl_net_ipv4.c	2012-04-19 17:24:49.158453959 +0800
++++ linux-2.6.32-220.13.1.el5/net/ipv4/sysctl_net_ipv4.c	2012-04-19 17:26:48.727046858 +0800
+@@ -25,6 +25,8 @@
+ static int tcp_retr1_max = 255;
+ static int ip_local_port_range_min[] = { 1, 1 };
+ static int ip_local_port_range_max[] = { 65535, 65535 };
++static int tcp_tw_timeout_min = 1 * HZ;
++static int tcp_tw_timeout_max = 600 * HZ;
+ 
+ /* Update system visible IP port range */
+ static void set_local_port_range(int range[2])
+@@ -340,6 +342,16 @@
+ 		.proc_handler	= proc_dointvec_jiffies,
+ 		.strategy	= sysctl_jiffies
+ 	},
++	{
++		.ctl_name	= NET_IPV4_TCP_TW_TIMEOUT,
++		.procname	= "tcp_tw_timeout",
++		.data		= &sysctl_tcp_tw_timeout,
++		.maxlen		= sizeof(int),
++		.mode		= 0644,
++		.proc_handler	= proc_dointvec_jiffies_minmax,
++		.extra1		= &tcp_tw_timeout_min,
++		.extra2		= &tcp_tw_timeout_max
++	},
+ #ifdef CONFIG_SYN_COOKIES
+ 	{
+ 		.ctl_name	= NET_TCP_SYNCOOKIES,
+Index: linux-2.6.32-220.13.1.el5/net/ipv4/tcp.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/net/ipv4/tcp.c	2012-04-19 17:24:49.138453856 +0800
++++ linux-2.6.32-220.13.1.el5/net/ipv4/tcp.c	2012-04-19 17:26:48.727046858 +0800
+@@ -277,6 +277,9 @@
+ 
+ int sysctl_tcp_fin_timeout __read_mostly = TCP_FIN_TIMEOUT;
+ 
++int sysctl_tcp_tw_timeout __read_mostly = TCP_TIMEWAIT_LEN;
++EXPORT_SYMBOL(sysctl_tcp_tw_timeout);
++
+ struct percpu_counter tcp_orphan_count;
+ EXPORT_SYMBOL_GPL(tcp_orphan_count);
+ 
+@@ -1965,9 +1968,9 @@
+ 		} else {
+ 			const int tmo = tcp_fin_time(sk);
+ 
+-			if (tmo > TCP_TIMEWAIT_LEN) {
++			if (tmo > sysctl_tcp_tw_timeout) {
+ 				inet_csk_reset_keepalive_timer(sk,
+-						tmo - TCP_TIMEWAIT_LEN);
++						tmo - sysctl_tcp_tw_timeout);
+ 			} else {
+ 				tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
+ 				goto out;
+Index: linux-2.6.32-220.13.1.el5/net/ipv4/tcp_input.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/net/ipv4/tcp_input.c	2012-04-19 17:24:49.130453806 +0800
++++ linux-2.6.32-220.13.1.el5/net/ipv4/tcp_input.c	2012-04-19 17:26:48.731046884 +0800
+@@ -5749,8 +5749,8 @@
+ 					}
+ 
+ 					tmo = tcp_fin_time(sk);
+-					if (tmo > TCP_TIMEWAIT_LEN) {
+-						inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);
++					if (tmo > sysctl_tcp_tw_timeout) {
++						inet_csk_reset_keepalive_timer(sk, tmo - sysctl_tcp_tw_timeout);
+ 					} else if (th->fin || sock_owned_by_user(sk)) {
+ 						/* Bad case. We could lose such FIN otherwise.
+ 						 * It is not a big problem, but it looks confusing
+Index: linux-2.6.32-220.13.1.el5/net/ipv4/tcp_minisocks.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/net/ipv4/tcp_minisocks.c	2012-04-19 17:24:49.146453892 +0800
++++ linux-2.6.32-220.13.1.el5/net/ipv4/tcp_minisocks.c	2012-04-19 17:26:48.731046884 +0800
+@@ -163,10 +163,10 @@
+ 		    tcp_death_row.sysctl_tw_recycle && tcptw->tw_ts_recent_stamp &&
+ 		    tcp_v4_tw_remember_stamp(tw))
+ 			inet_twsk_schedule(tw, &tcp_death_row, tw->tw_timeout,
+-					   TCP_TIMEWAIT_LEN);
++					   sysctl_tcp_tw_timeout);
+ 		else
+-			inet_twsk_schedule(tw, &tcp_death_row, TCP_TIMEWAIT_LEN,
+-					   TCP_TIMEWAIT_LEN);
++			inet_twsk_schedule(tw, &tcp_death_row, sysctl_tcp_tw_timeout,
++					   sysctl_tcp_tw_timeout);
+ 		return TCP_TW_ACK;
+ 	}
+ 
+@@ -204,8 +204,8 @@
+ 				return TCP_TW_SUCCESS;
+ 			}
+ 		}
+-		inet_twsk_schedule(tw, &tcp_death_row, TCP_TIMEWAIT_LEN,
+-				   TCP_TIMEWAIT_LEN);
++		inet_twsk_schedule(tw, &tcp_death_row, sysctl_tcp_tw_timeout,
++				   sysctl_tcp_tw_timeout);
+ 
+ 		if (tmp_opt.saw_tstamp) {
+ 			tcptw->tw_ts_recent	  = tmp_opt.rcv_tsval;
+@@ -255,8 +255,8 @@
+ 		 * Do not reschedule in the last case.
+ 		 */
+ 		if (paws_reject || th->ack)
+-			inet_twsk_schedule(tw, &tcp_death_row, TCP_TIMEWAIT_LEN,
+-					   TCP_TIMEWAIT_LEN);
++			inet_twsk_schedule(tw, &tcp_death_row, sysctl_tcp_tw_timeout,
++					   sysctl_tcp_tw_timeout);
+ 
+ 		/* Send ACK. Note, we do not put the bucket,
+ 		 * it will be released by caller.
+@@ -277,6 +277,8 @@
+ 	const struct tcp_sock *tp = tcp_sk(sk);
+ 	int recycle_ok = 0;
+ 
++	tcp_death_row.period = sysctl_tcp_tw_timeout / INET_TWDR_TWKILL_SLOTS;
++
+ 	if (tcp_death_row.sysctl_tw_recycle && tp->rx_opt.ts_recent_stamp)
+ 		recycle_ok = icsk->icsk_af_ops->remember_stamp(sk);
+ 
+@@ -338,13 +340,13 @@
+ 		if (recycle_ok) {
+ 			tw->tw_timeout = rto;
+ 		} else {
+-			tw->tw_timeout = TCP_TIMEWAIT_LEN;
++			tw->tw_timeout = sysctl_tcp_tw_timeout;
+ 			if (state == TCP_TIME_WAIT)
+-				timeo = TCP_TIMEWAIT_LEN;
++				timeo = sysctl_tcp_tw_timeout;
+ 		}
+ 
+ 		inet_twsk_schedule(tw, &tcp_death_row, timeo,
+-				   TCP_TIMEWAIT_LEN);
++				   sysctl_tcp_tw_timeout);
+ 		inet_twsk_put(tw);
+ 	} else {
+ 		/* Sorry, if we're out of memory, just CLOSE this
+Index: linux-2.6.32-220.13.1.el5/net/ipv4/tcp_timer.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/net/ipv4/tcp_timer.c	2012-04-19 17:24:49.118453739 +0800
++++ linux-2.6.32-220.13.1.el5/net/ipv4/tcp_timer.c	2012-04-19 17:26:48.731046884 +0800
+@@ -83,7 +83,7 @@
+ 
+ 		/* Catch exceptional cases, when connection requires reset.
+ 		 *      1. Last segment was sent recently. */
+-		if ((s32)(tcp_time_stamp - tp->lsndtime) <= TCP_TIMEWAIT_LEN ||
++		if ((s32)(tcp_time_stamp - tp->lsndtime) <= sysctl_tcp_tw_timeout ||
+ 		    /*  2. Window is closed. */
+ 		    (!tp->snd_wnd && !tp->packets_out))
+ 			do_reset = 1;
+@@ -498,7 +498,7 @@
+ 
+ 	if (sk->sk_state == TCP_FIN_WAIT2 && sock_flag(sk, SOCK_DEAD)) {
+ 		if (tp->linger2 >= 0) {
+-			const int tmo = tcp_fin_time(sk) - TCP_TIMEWAIT_LEN;
++			const int tmo = tcp_fin_time(sk) - sysctl_tcp_tw_timeout;
+ 
+ 			if (tmo > 0) {
+ 				tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
+Index: linux-2.6.32-220.13.1.el5/kernel/sysctl.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/kernel/sysctl.c	2012-04-19 17:24:49.170454005 +0800
++++ linux-2.6.32-220.13.1.el5/kernel/sysctl.c	2012-04-19 17:26:48.731046884 +0800
+@@ -2880,6 +2880,69 @@
+ 				do_proc_dointvec_minmax_conv, &param);
+ }
+ 
++struct do_proc_dointvec_jiffies_minmax_conv_param {
++	int *min;
++	int *max;
++};
++
++static int do_proc_dointvec_jiffies_minmax_conv(bool *negp, unsigned long *lvalp,
++					 int *valp,
++					 int write, void *data)
++{
++	int val = 0;
++	struct do_proc_dointvec_jiffies_minmax_conv_param *param =
++		(struct do_proc_dointvec_jiffies_minmax_conv_param *)data;
++
++	if (write) {
++		if (*lvalp > LONG_MAX / HZ)
++			return 1;
++		val = (*negp) ? -(*lvalp*HZ) : (*lvalp*HZ);
++		if ((param->min && *param->min > val) ||
++		    (param->max && *param->max < val))
++			return -EINVAL;
++		*valp = val;
++	} else {
++		unsigned long lval;
++		val = *valp;
++		if (val < 0) {
++			*negp = true;
++			lval = (unsigned long)-val;
++		} else {
++			*negp = false;
++			lval = (unsigned long)val;
++		}
++		*lvalp = lval / HZ;
++	}
++	return 0;
++}
++
++/**
++ * proc_dointvec_jiffies_minmax - read a vector of integers as seconds with min/max values
++ * @table: the sysctl table
++ * @write: %TRUE if this is a write to the sysctl file
++ * @buffer: the user buffer
++ * @lenp: the size of the user buffer
++ * @ppos: file position
++ *
++ * Reads/writes up to table->maxlen/sizeof(unsigned int) integer
++ * values from/to the user buffer, treated as an ASCII string.
++ *
++ * This routine will ensure the values are within the range specified by
++ * table->extra1 (min) and table->extra2 (max).
++ *
++ * Returns 0 on success.
++ */
++int proc_dointvec_jiffies_minmax(struct ctl_table *table, int write,
++		  void __user *buffer, size_t *lenp, loff_t *ppos)
++{
++	struct do_proc_dointvec_jiffies_minmax_conv_param param = {
++		.min = (int *) table->extra1,
++		.max = (int *) table->extra2,
++	};
++	return do_proc_dointvec(table, write, buffer, lenp, ppos,
++				do_proc_dointvec_jiffies_minmax_conv, &param);
++}
++
+ static int __do_proc_doulongvec_minmax(void *data, struct ctl_table *table, int write,
+ 				     void __user *buffer,
+ 				     size_t *lenp, loff_t *ppos,
+@@ -3351,6 +3414,12 @@
+ 	return -ENOSYS;
+ }
+ 
++int proc_dointvec_jiffies_minmax(struct ctl_table *table, int write,
++		    void __user *buffer, size_t *lenp, loff_t *ppos)
++{
++	return -ENOSYS;
++}
++
+ int proc_dointvec_userhz_jiffies(struct ctl_table *table, int write,
+ 		    void __user *buffer, size_t *lenp, loff_t *ppos)
+ {
+@@ -3666,6 +3735,7 @@
+ EXPORT_SYMBOL(proc_dointvec);
+ EXPORT_SYMBOL(proc_dointvec_jiffies);
+ EXPORT_SYMBOL(proc_dointvec_minmax);
++EXPORT_SYMBOL(proc_dointvec_jiffies_minmax);
+ EXPORT_SYMBOL(proc_dointvec_userhz_jiffies);
+ EXPORT_SYMBOL(proc_dointvec_ms_jiffies);
+ EXPORT_SYMBOL(proc_dostring);

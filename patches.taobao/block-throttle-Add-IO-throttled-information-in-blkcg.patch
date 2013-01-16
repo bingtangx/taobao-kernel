@@ -1,0 +1,171 @@
+From: Tao Ma <boyu.mt@taobao.com>
+Subject:  block/throttle: Add IO throttled information in blkcg.
+Patch-mainline: In house
+References: 
+
+Currently, if the IO is throttled by io-throttle, the SA has no idea of
+the situation and can't report it to the real application user about
+that he/she has to do something. So this patch adds a new interface
+named blkio.throttle.io_throttled which indicates how many IOs are
+currently throttled.
+
+Acked-by: Zheng Liu <wenqing.lz@taobao.com>
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+
+Index: linux-2.6.32-220.13.1.el6/block/blk-cgroup.c
+===================================================================
+--- linux-2.6.32-220.13.1.el6.orig/block/blk-cgroup.c	2012-05-24 00:08:00.000000000 +0800
++++ linux-2.6.32-220.13.1.el6/block/blk-cgroup.c	2012-05-24 00:08:11.000000000 +0800
+@@ -325,6 +325,31 @@
+ static inline void blkio_end_empty_time(struct blkio_group_stats *stats) {}
+ #endif
+ 
++void blkiocg_update_io_throttled_stats(struct blkio_group *blkg,
++			struct blkio_group *curr_blkg, bool direction,
++			bool sync)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&blkg->stats_lock, flags);
++	blkio_add_stat(blkg->stats.stat_arr[BLKIO_STAT_THROTTLED], 1, direction,
++			sync);
++	spin_unlock_irqrestore(&blkg->stats_lock, flags);
++}
++EXPORT_SYMBOL_GPL(blkiocg_update_io_throttled_stats);
++
++void blkiocg_update_io_throttled_remove_stats(struct blkio_group *blkg,
++						bool direction, bool sync)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&blkg->stats_lock, flags);
++	blkio_check_and_dec_stat(blkg->stats.stat_arr[BLKIO_STAT_THROTTLED],
++					direction, sync);
++	spin_unlock_irqrestore(&blkg->stats_lock, flags);
++}
++EXPORT_SYMBOL_GPL(blkiocg_update_io_throttled_remove_stats);
++
+ void blkiocg_update_io_add_stats(struct blkio_group *blkg,
+ 			struct blkio_group *curr_blkg, bool direction,
+ 			bool sync)
+@@ -539,6 +564,7 @@
+ 	struct blkio_group_stats *stats;
+ 	struct hlist_node *n;
+ 	uint64_t queued[BLKIO_STAT_TOTAL];
++	uint64_t throttled[BLKIO_STAT_TOTAL];
+ 	int i;
+ #ifdef CONFIG_DEBUG_BLK_CGROUP
+ 	bool idling, waiting, empty;
+@@ -557,9 +583,13 @@
+ #endif
+ 		for (i = 0; i < BLKIO_STAT_TOTAL; i++)
+ 			queued[i] = stats->stat_arr[BLKIO_STAT_QUEUED][i];
++		for (i = 0; i < BLKIO_STAT_TOTAL; i++)
++			throttled[i] = stats->stat_arr[BLKIO_STAT_THROTTLED][i];
+ 		memset(stats, 0, sizeof(struct blkio_group_stats));
+ 		for (i = 0; i < BLKIO_STAT_TOTAL; i++)
+ 			stats->stat_arr[BLKIO_STAT_QUEUED][i] = queued[i];
++		for (i = 0; i < BLKIO_STAT_TOTAL; i++)
++			stats->stat_arr[BLKIO_STAT_THROTTLED][i] = throttled[i];
+ #ifdef CONFIG_DEBUG_BLK_CGROUP
+ 		if (idling) {
+ 			blkio_mark_blkg_idling(stats);
+@@ -1244,6 +1274,9 @@
+ 		case BLKIO_THROTL_io_serviced:
+ 			return blkio_read_blkg_stats(blkcg, cft, cb,
+ 						BLKIO_STAT_CPU_SERVICED, 1, 1);
++		case BLKIO_THROTL_io_queued:
++			return blkio_read_blkg_stats(blkcg, cft, cb,
++						BLKIO_STAT_THROTTLED, 1, 0);
+ 		default:
+ 			BUG();
+ 		}
+@@ -1440,6 +1473,12 @@
+ 				BLKIO_THROTL_io_serviced),
+ 		.read_map = blkiocg_file_read_map,
+ 	},
++	{
++		.name = "throttle.io_queued",
++		.private = BLKIOFILE_PRIVATE(BLKIO_POLICY_THROTL,
++				BLKIO_THROTL_io_queued),
++		.read_map = blkiocg_file_read_map,
++	},
+ #endif /* CONFIG_BLK_DEV_THROTTLING */
+ 
+ #ifdef CONFIG_DEBUG_BLK_CGROUP
+Index: linux-2.6.32-220.13.1.el6/block/blk-cgroup.h
+===================================================================
+--- linux-2.6.32-220.13.1.el6.orig/block/blk-cgroup.h	2012-05-24 00:08:00.000000000 +0800
++++ linux-2.6.32-220.13.1.el6/block/blk-cgroup.h	2012-05-24 00:08:11.000000000 +0800
+@@ -35,6 +35,8 @@
+ 	BLKIO_STAT_WAIT_TIME,
+ 	/* Number of IOs merged */
+ 	BLKIO_STAT_MERGED,
++	/* Number of IOs throttled */
++	BLKIO_STAT_THROTTLED,
+ 	/* Number of IOs queued up */
+ 	BLKIO_STAT_QUEUED,
+ 	/* All the single valued stats go below this */
+@@ -100,6 +102,7 @@
+ 	BLKIO_THROTL_write_iops_device,
+ 	BLKIO_THROTL_io_service_bytes,
+ 	BLKIO_THROTL_io_serviced,
++	BLKIO_THROTL_io_queued,
+ };
+ 
+ struct blkio_cgroup {
+@@ -314,6 +317,11 @@
+ 		struct blkio_group *curr_blkg, bool direction, bool sync);
+ void blkiocg_update_io_remove_stats(struct blkio_group *blkg,
+ 					bool direction, bool sync);
++void blkiocg_update_io_throttled_stats(struct blkio_group *blkg,
++		struct blkio_group *curr_blkg, bool direction, bool sync);
++void blkiocg_update_io_throttled_remove_stats(struct blkio_group *blkg,
++					      bool direction, bool sync);
++
+ #else
+ struct cgroup;
+ static inline struct blkio_cgroup *
+@@ -345,5 +353,10 @@
+ 		struct blkio_group *curr_blkg, bool direction, bool sync) {}
+ static inline void blkiocg_update_io_remove_stats(struct blkio_group *blkg,
+ 						bool direction, bool sync) {}
++static inline void blkiocg_update_io_throttled_stats(struct blkio_group *blkg,
++		struct blkio_group *curr_blkg, bool direction, bool sync) {}
++static inline void
++blkiocg_update_io_throttled_remove_stats(struct blkio_group *blkg,
++		struct blkio_group *curr_blkg, bool direction, bool sync) {}
+ #endif
+ #endif /* _BLK_CGROUP_H */
+Index: linux-2.6.32-220.13.1.el6/block/blk-throttle.c
+===================================================================
+--- linux-2.6.32-220.13.1.el6.orig/block/blk-throttle.c	2012-05-24 00:08:00.000000000 +0800
++++ linux-2.6.32-220.13.1.el6/block/blk-throttle.c	2012-05-24 00:08:11.000000000 +0800
+@@ -759,12 +759,14 @@
+ 			struct bio *bio)
+ {
+ 	bool rw = bio_data_dir(bio);
++	bool sync = !(bio->bi_rw & REQ_WRITE) || (bio->bi_rw & REQ_SYNC);
+ 
+ 	bio_list_add(&tg->bio_lists[rw], bio);
+ 	/* Take a bio reference on tg */
+ 	throtl_ref_get_tg(tg);
+ 	tg->nr_queued[rw]++;
+ 	td->nr_queued[rw]++;
++	blkiocg_update_io_throttled_stats(&tg->blkg, NULL, rw, sync);
+ 	throtl_enqueue_tg(td, tg);
+ }
+ 
+@@ -792,9 +794,12 @@
+ 				bool rw, struct bio_list *bl)
+ {
+ 	struct bio *bio;
++	bool sync;
+ 
+ 	bio = bio_list_pop(&tg->bio_lists[rw]);
++	sync = !(bio->bi_rw & REQ_WRITE) || (bio->bi_rw & REQ_SYNC);
+ 	tg->nr_queued[rw]--;
++	blkiocg_update_io_throttled_remove_stats(&tg->blkg, rw, sync);
+ 	/* Drop bio reference on tg */
+ 	throtl_put_tg(tg);
+ 

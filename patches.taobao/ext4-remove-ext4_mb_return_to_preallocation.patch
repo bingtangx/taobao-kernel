@@ -1,0 +1,66 @@
+From a5196f8cdfbf6ccb20f093aaf48852d6d23b4e0b Mon Sep 17 00:00:00 2001
+From: Theodore Ts'o <tytso@mit.edu>
+Date: Mon, 10 Jan 2011 12:47:07 -0500
+Subject: [PATCH] ext4: remove ext4_mb_return_to_preallocation()
+Patch-mainline: a5196f8cdfbf6ccb20f093aaf48852d6d23b4e0b
+References: 
+
+This function was never implemented, except for a BUG_ON which was
+tripping when ext4 is run without a journal.  The problem is that
+although the comment asserts that "truncate (which is the only way to
+free block) discards all preallocations", ext4_free_blocks() is also
+called in various error recovery paths when blocks have been
+allocated, but for various reasons, we were not able to use those data
+blocks (for example, because we ran out of memory while trying to
+manipulate the extent tree, or some other similar situation).
+
+In addition to the fact that this function isn't implemented except
+for the incorrect BUG_ON, the single caller of this function,
+ext4_free_blocks(), doesn't use it all if the journal is enabled.
+
+So remove the (stub) function entirely for now.  If we decide it's
+better to add it back, it's only going to be useful with a relatively
+large number of code changes anyway.
+
+Google-bug-id: 3236408
+
+Cc: Jiaying Zhang <jiayingz@google.com>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Acked-by: Tao Ma <boyu.mt@taobao.com>
+
+---
+ fs/ext4/mballoc.c |   14 --------------
+ 1 files changed, 0 insertions(+), 14 deletions(-)
+
+Index: linux-2.6.32-220.0.0.el5/fs/ext4/mballoc.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/fs/ext4/mballoc.c	2011-12-13 14:26:06.642261629 +0800
++++ linux-2.6.32-220.0.0.el5/fs/ext4/mballoc.c	2011-12-13 14:27:36.246705952 +0800
+@@ -3897,19 +3897,6 @@
+ 		kmem_cache_free(ext4_ac_cachep, ac);
+ }
+ 
+-/*
+- * finds all preallocated spaces and return blocks being freed to them
+- * if preallocated space becomes full (no block is used from the space)
+- * then the function frees space in buddy
+- * XXX: at the moment, truncate (which is the only way to free blocks)
+- * discards all preallocations
+- */
+-static void ext4_mb_return_to_preallocation(struct inode *inode,
+-					struct ext4_buddy *e4b,
+-					sector_t block, int count)
+-{
+-	BUG_ON(!list_empty(&EXT4_I(inode)->i_prealloc_list));
+-}
+ #ifdef CONFIG_EXT4_DEBUG
+ static void ext4_mb_show_ac(struct ext4_allocation_context *ac)
+ {
+@@ -4634,7 +4621,6 @@
+ 		ext4_lock_group(sb, block_group);
+ 		mb_clear_bits(bitmap_bh->b_data, bit, count);
+ 		mb_free_blocks(inode, &e4b, bit, count);
+-		ext4_mb_return_to_preallocation(inode, &e4b, block, count);
+ 	}
+ 
+ 	ret = ext4_free_blks_count(sb, gdp) + count;

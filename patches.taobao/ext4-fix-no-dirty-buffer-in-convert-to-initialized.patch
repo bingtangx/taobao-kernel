@@ -1,0 +1,54 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH] ext4: fix no mark dirty in ext4_ext_convert_to_initialized()
+Patch-mainline: linux-2.6.32-131.12.1.el6
+
+We will meet with a BUG_ON() if following script is run.
+
+mkfs.ext4 -b 4096 /dev/sdb1 1000000
+mount -t ext4 /dev/sdb1 /mnt/sdb1
+fallocate -l 100M /mnt/sdb1/test
+sync
+for((i=0;i<170;i++))
+do
+        dd if=/dev/zero of=/mnt/sdb1/test conv=notrunc bs=256k count=1 seek=`expr $i \* 2`
+done
+umount /mnt/sdb1
+mount -t ext4 /dev/sdb1 /mnt/sdb1
+dd if=/dev/zero of=/mnt/sdb1/test conv=notrunc bs=256k count=1 seek=341
+umount /mnt/sdb1
+mount /dev/sdb1 /mnt/sdb1
+dd if=/dev/zero of=/mnt/sdb1/test conv=notrunc bs=256k count=1 seek=340
+sync
+
+The reason is that it forgot to mark dirty when splitting two extents in
+ext4_ext_convert_to_initialized(). Althrough ex has been updated in memory,
+it is not dirtied both in ext4_ext_convert_to_initialized() and
+ext4_ext_insert_extent(). The disk layout is corrupted. Then it will meet with
+a BUG_ON() when writting at the start of that extent again.
+
+Cc: Yingbin Wang <yingbin.wangyb@aliyun-inc.com>
+Cc: Jia Wan <jia.wanj@alibaba-inc.com>
+Cc: Xiaoyun Mao <xiaoyun.maoxy@alibaba-inc.com>
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-131.17.1.el6/fs/ext4/extents.c
+===================================================================
+--- linux-2.6.32-131.17.1.el6.orig/fs/ext4/extents.c
++++ linux-2.6.32-131.17.1.el6/fs/ext4/extents.c
+@@ -2696,6 +2696,7 @@ static int ext4_ext_convert_to_initializ
+ 		ex1 = ex;
+ 		ex1->ee_len = cpu_to_le16(iblock - ee_block);
+ 		ext4_ext_mark_uninitialized(ex1);
++		ext4_ext_dirty(handle, inode, path + depth);
+ 		ex2 = &newex;
+ 	}
+ 	/*
+@@ -2859,6 +2860,7 @@ static int ext4_ext_convert_to_initializ
+ 		ex1 = ex;
+ 		ex1->ee_len = cpu_to_le16(iblock - ee_block);
+ 		ext4_ext_mark_uninitialized(ex1);
++		ext4_ext_dirty(handle, inode, path + depth);
+ 		ex2 = &newex;
+ 	}
+ 	/* ex2: iblock to iblock + maxblocks-1 : initialised */

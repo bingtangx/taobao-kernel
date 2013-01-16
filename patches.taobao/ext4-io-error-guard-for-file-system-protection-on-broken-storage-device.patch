@@ -1,0 +1,470 @@
+From: Coly Li <bosong.ly@taobao.com>
+Date: Sat Dec  3 18:39:36 CST 2011
+Subject: [PATCH] Ext4: io error guard for file system protection on broken storage device
+Patch-mainline: in house patch
+Reference:
+
+This patch implements a file system protecting mechanism named "io error guard",
+which set file system to read-only mode when too many I/O errors encountered
+on the underlying storage device.
+
+File sysytem like Ext4 sets file system to read-only when I/O error
+encountered in data or metadata. There are several shortage in current
+implementation:
+-  Current implementation is an once-trigger mechanism, a.k.a one
+   I/O error catched will set the file system to read-only.
+- If the underlying media is broken, read-only protection can not help
+  other file system existing on same media, if other file systems are
+  not able to cache such I/O errors.
+
+Based on Taobao's workload, we make a little improvement on:
+- Set an I/O error counting threshold and counting time interval (in seconds),
+  only set file system to read-only until one of the following conditions met,
+  1) I/O errors reaches threshold within counting time interval.
+     E.g. in 5 seconds, there are 20+ I/O errors reported by block layer.
+  2) In several continous counting time intervals, I/O error can be found
+     in every counting time, and total error number reaches threshold.
+     E.g. in every 5 seconds, only 5 I/O errors reported, after 20 seconds
+     there are 20 I/O errors reported by block layer. In this condition, file
+     system will be set as read-only too.
+- Set all file systems (registered eio_handler) existing on error-found media
+  to read-only.
+  1) When file system mounting, it is permitted to register an io error
+     handler to corresponding device. E.g. in Ext4, it's done by
+     ext4_io_error_guard_init().
+  2) When I/O error reaches error threshold on a device, call all file system
+     handlers registered on the device.
+
+NOTE: If a file system does not register its now I/O error guard handler, it
+      will not be protected by setting to read-only when error reaches
+      threshold.
+ 
+There are two parameters exported by sysfs to configure I/O error threshold and
+I/O error counting time interval:
+- /sys/block/sd[?]/eio/threshold --- I/O error threshold
+- /sys/block/sd[?]/eio/interval  --- I/O error counting interval in seconds
+If no value specified by users, the default value are defined as,
+#define DEFAULT_EIO_THRESHOLD  20
+#define DEFAULT_EIO_INTERVAL   5
+
+DISABLE io-error-guard: set threashold to 0 will disable io error guard on
+        corresponding device.
+
+Signed-off-by: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Signed-off-by: Coly Li <bosong.ly@taobao.com>
+---
+ block/genhd.c      |   62 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ fs/bio.c           |   34 +++++++++++++++++++++++++++++
+ fs/block_dev.c     |   16 +++++++++++++
+ fs/ext4/ext4.h     |    3 ++
+ fs/ext4/super.c    |   38 ++++++++++++++++++++++++++++++++
+ include/linux/fs.h |   16 +++++++++++++
+ 6 files changed, 169 insertions(+)
+
+Index: linux-2.6.32-220.13.1.el5/block/genhd.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/block/genhd.c	2012-04-19 17:24:49.286454584 +0800
++++ linux-2.6.32-220.13.1.el5/block/genhd.c	2012-04-19 17:26:39.138999308 +0800
+@@ -903,6 +903,13 @@
+ 	return sprintf(buf, "%d\n", queue_discard_alignment(disk->queue));
+ }
+ 
++static ssize_t eio_show(struct device *dev,
++			struct device_attribute *attr,
++			char *buf);
++static ssize_t eio_store(struct device *dev,
++			 struct device_attribute *attr,
++			 const char *buf, size_t count);
++
+ static DEVICE_ATTR(range, S_IRUGO, disk_range_show, NULL);
+ static DEVICE_ATTR(ext_range, S_IRUGO, disk_ext_range_show, NULL);
+ static DEVICE_ATTR(removable, S_IRUGO, disk_removable_show, NULL);
+@@ -923,6 +930,10 @@
+ 	__ATTR(io-timeout-fail,  S_IRUGO|S_IWUSR, part_timeout_show,
+ 		part_timeout_store);
+ #endif
++static DEVICE_ATTR(threshold, S_IRUGO|S_IWUSR, eio_show,
++		   eio_store);
++static DEVICE_ATTR(interval, S_IRUGO|S_IWUSR, eio_show,
++		   eio_store);
+ 
+ static struct attribute *disk_attrs[] = {
+ 	&dev_attr_range.attr,
+@@ -944,15 +955,66 @@
+ 	NULL
+ };
+ 
++static struct attribute *eio_attrs[] = {
++	&dev_attr_threshold.attr,
++	&dev_attr_interval.attr,
++	NULL
++};
+ static struct attribute_group disk_attr_group = {
+ 	.attrs = disk_attrs,
+ };
++static struct attribute_group eio_attr_group = {
++	.name = "eio",
++	.attrs = eio_attrs,
++};
+ 
+ static const struct attribute_group *disk_attr_groups[] = {
+ 	&disk_attr_group,
++	&eio_attr_group,
+ 	NULL
+ };
+ 
++static ssize_t eio_show(struct device *dev,
++			struct device_attribute *attr,
++			char *buf)
++{
++	struct gendisk *disk = dev_to_disk(dev);
++	struct block_device *bdev = bdget_disk(disk, 0);
++	struct eio *eio = &bdev->bd_eio;
++	int ret = -EINVAL;
++
++	if (attr == &dev_attr_interval)
++		ret = sprintf(buf, "%u\n", eio->interval);
++	else if (attr == &dev_attr_threshold)
++		ret = sprintf(buf, "%u\n", eio->threshold);
++
++	return ret;
++}
++
++static ssize_t eio_store(struct device *dev,
++			 struct device_attribute *attr,
++			 const char *buf, size_t count)
++{
++	struct gendisk *disk = dev_to_disk(dev);
++	struct block_device *bdev = bdget_disk(disk, 0);
++	struct eio *eio = &bdev->bd_eio;
++	unsigned long t;
++	char *endp;
++
++	t = simple_strtoul(skip_spaces(buf), &endp, 0);
++	endp = skip_spaces(endp);
++	if (*endp || t > 0xffffffff)
++		return -EINVAL;
++
++	if (attr == &dev_attr_interval) {
++		if (t <= 0)
++			return -EINVAL;
++		eio->interval = t;
++	} else if (attr == &dev_attr_threshold)
++		eio->threshold = t;
++
++	return count;
++}
+ static void disk_free_ptbl_rcu_cb(struct rcu_head *head)
+ {
+ 	struct disk_part_tbl *ptbl =
+Index: linux-2.6.32-220.13.1.el5/fs/bio.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/bio.c	2012-04-19 17:24:49.314454732 +0800
++++ linux-2.6.32-220.13.1.el5/fs/bio.c	2012-04-19 17:26:39.138999308 +0800
+@@ -26,7 +26,6 @@
+ #include <linux/mempool.h>
+ #include <linux/workqueue.h>
+ #include <scsi/sg.h>		/* for struct sg_iovec */
+-
+ #include <trace/events/block.h>
+ 
+ /*
+@@ -1408,6 +1407,55 @@
+ 	}
+ }
+ 
++static void bio_error_handler(struct block_device *bdev)
++{
++	struct eio *eio;
++	struct eio_handler *eio_handler;
++	unsigned long time;
++	unsigned int threshold;
++
++	if (bdev == NULL ||
++	    bdev->bd_contains == NULL) {
++		printk(KERN_ERR "io-error-guard: device kobj removed, "
++			"failed to featch bdev structure.");
++		return;
++	}
++	eio = &(bdev->bd_contains->bd_eio);
++	if (eio == NULL) {
++		printk(KERN_ERR "io-error-guard: device kobj removed, "
++			"failed to fetch eio structure.");
++		return;
++	}
++	threshold = eio->threshold;
++	if (threshold == 0)
++		return;
++
++	spin_lock(&eio->lock);
++	time = jiffies;
++	if (time_after(eio->last_jiffies + eio->interval * HZ, time))
++		eio->counter++;
++	else
++		eio->counter = 1;
++	eio->last_jiffies = time;
++	printk(KERN_ERR "io-error-guard: catch %u continuous bio error%s\n",
++		eio->counter, eio->counter > 1 ? "s." : ".");
++
++	if (eio->counter >= threshold) {
++		printk(KERN_ERR "io-error-guard: catched continuous bio "
++				"errors reaches threshold.\n");
++		list_for_each_entry(eio_handler, &eio->head, list) {
++			if (eio_handler->handler) {
++				printk(KERN_ERR
++					"io-error-guard: call error handler "
++					"for file system %s.\n",
++					eio_handler->fs_name);
++				eio_handler->handler(eio_handler);
++			}
++		}
++	}
++	spin_unlock(&eio->lock);
++}
++
+ /**
+  * bio_endio - end I/O on a bio
+  * @bio:	bio
+@@ -1429,6 +1477,11 @@
+ 	else if (!test_bit(BIO_UPTODATE, &bio->bi_flags))
+ 		error = -EIO;
+ 
++	if (error) {
++		if (bio->bi_bdev)
++			bio_error_handler(bio->bi_bdev);
++	}
++
+ 	if (bio->bi_end_io)
+ 		bio->bi_end_io(bio, error);
+ }
+Index: linux-2.6.32-220.13.1.el5/fs/block_dev.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/block_dev.c	2012-04-19 17:24:49.318454746 +0800
++++ linux-2.6.32-220.13.1.el5/fs/block_dev.c	2012-04-19 17:26:39.138999308 +0800
+@@ -29,6 +29,9 @@
+ #include <asm/uaccess.h>
+ #include "internal.h"
+ 
++#define DEFAULT_EIO_THRESHOLD	20
++#define DEFAULT_EIO_INTERVAL	5
++
+ struct bdev_inode {
+ 	struct block_device bdev;
+ 	struct inode vfs_inode;
+@@ -453,6 +456,7 @@
+ {
+ 	struct bdev_inode *ei = (struct bdev_inode *) foo;
+ 	struct block_device *bdev = &ei->bdev;
++	struct eio *eio = &bdev->bd_eio;
+ 
+ 	memset(bdev, 0, sizeof(*bdev));
+ 	mutex_init(&bdev->bd_mutex);
+@@ -461,6 +465,8 @@
+ #ifdef CONFIG_SYSFS
+ 	INIT_LIST_HEAD(&bdev->bd_holder_list);
+ #endif
++	spin_lock_init(&eio->lock);
++	INIT_LIST_HEAD(&eio->head);
+ 	inode_init_once(&ei->vfs_inode);
+ 	/* Initialize mutex for freeze. */
+ 	mutex_init(&bdev->bd_fsfreeze_mutex);
+@@ -557,6 +563,7 @@
+ {
+ 	struct block_device *bdev;
+ 	struct inode *inode;
++	struct eio *eio;
+ 
+ 	inode = iget5_locked(blockdev_superblock, hash(dev),
+ 			bdev_test, bdev_set, &dev);
+@@ -565,6 +572,7 @@
+ 		return NULL;
+ 
+ 	bdev = &BDEV_I(inode)->bdev;
++	eio = &bdev->bd_eio;
+ 
+ 	if (inode->i_state & I_NEW) {
+ 		bdev->bd_contains = NULL;
+@@ -581,6 +589,9 @@
+ 		spin_lock(&bdev_lock);
+ 		list_add(&bdev->bd_list, &all_bdevs);
+ 		spin_unlock(&bdev_lock);
++		/* eio->counter and eio->threshold are set to 0 in memset */
++		eio->threshold = DEFAULT_EIO_THRESHOLD;
++		eio->interval = DEFAULT_EIO_INTERVAL;
+ 		unlock_new_inode(inode);
+ 	}
+ 	return bdev;
+@@ -1380,6 +1391,11 @@
+ 	}
+ 	if (!bdev->bd_openers) {
+ 		struct module *owner = disk->fops->owner;
++		if (bdev->bd_contains == bdev && bdev && bdev->bd_contains) {
++			struct eio *eio = &(bdev->bd_contains->bd_eio);
++			if (eio)
++				WARN_ON(!list_empty(&eio->head));
++		}
+ 
+ 		put_disk(disk);
+ 		module_put(owner);
+Index: linux-2.6.32-220.13.1.el5/fs/ext4/ext4.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/ext4/ext4.h	2012-04-19 17:26:24.754927991 +0800
++++ linux-2.6.32-220.13.1.el5/fs/ext4/ext4.h	2012-04-19 17:26:39.138999308 +0800
+@@ -1141,6 +1141,9 @@
+ 	struct ext4_li_request *s_li_request;
+ 	/* Wait multiplier for lazy initialization thread */
+ 	unsigned int s_li_wait_mult;
++
++	/* IO error handler when counter reach threshold */
++	struct eio_handler s_eio_handler;
+ };
+ 
+ static inline struct ext4_sb_info *EXT4_SB(struct super_block *sb)
+Index: linux-2.6.32-220.13.1.el5/fs/ext4/super.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/ext4/super.c	2012-04-19 17:26:37.482991123 +0800
++++ linux-2.6.32-220.13.1.el5/fs/ext4/super.c	2012-04-19 17:26:39.142999343 +0800
+@@ -344,6 +344,26 @@
+ 			sb->s_id);
+ }
+ 
++static void ext4_eio_handler(struct eio_handler *handler)
++{
++	struct super_block *sb;
++	if (handler == NULL ||
++	    handler->bdev == NULL) {
++		printk(KERN_CRIT "io-error-guard: device kobj removed, "
++			"failed to set file system to read-only.");
++		return;
++	}
++
++	sb = handler->bdev->bd_super;
++	if (sb == NULL || (sb->s_flags & MS_RDONLY))
++		return;
++
++	/* DONOT sync anything back to disk, just set MS_RDONLY flag */
++	sb->s_flags |= MS_RDONLY;
++	ext4_msg(sb, KERN_CRIT, "io-error-guard: "
++			"set file system to read-only.");
++}
++
+ void __ext4_error(struct super_block *sb, const char *function,
+ 		const char *fmt, ...)
+ {
+@@ -636,6 +656,18 @@
+ 	}
+ }
+ 
++void ext4_io_error_guard_destory(struct super_block *sb)
++{
++	struct ext4_sb_info *sbi = EXT4_SB(sb);
++	struct eio_handler *eio_handler = &sbi->s_eio_handler;
++	struct eio *eio = &sb->s_bdev->bd_contains->bd_eio;
++
++	kfree(eio_handler->fs_name);
++	spin_lock_bh(&eio->lock);
++	list_del_init(&eio_handler->list);
++	spin_unlock_bh(&eio->lock);
++}
++
+ static void ext4_put_super(struct super_block *sb)
+ {
+ 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+@@ -652,6 +684,9 @@
+ 	if (sb->s_dirt)
+ 		ext4_commit_super(sb, 1);
+ 
++	if (!sbi->s_journal)
++		ext4_io_error_guard_destory(sb);
++
+ 	if (sbi->s_journal) {
+ 		err = jbd2_journal_destroy(sbi->s_journal);
+ 		sbi->s_journal = NULL;
+@@ -2807,6 +2842,34 @@
+ 	kthread_stop(ext4_lazyinit_task);
+ }
+ 
++/* must be called after sbi initialized */
++static int ext4_io_error_guard_init(struct super_block *sb)
++{
++	struct eio *eio;
++	struct eio_handler *eio_handler;
++	struct ext4_sb_info *sbi = EXT4_SB(sb);
++	int ret = 0;
++
++	eio_handler = &sbi->s_eio_handler;
++
++	eio_handler->fs_name = kstrdup("ext4", GFP_NOFS);
++	if (eio_handler->fs_name == NULL) {
++		ret = -ENOMEM;
++		goto out;
++	}
++	INIT_LIST_HEAD(&eio_handler->list);
++	eio_handler->handler = ext4_eio_handler;
++	eio_handler->bdev = sb->s_bdev;
++
++	eio = &sb->s_bdev->bd_contains->bd_eio;
++	spin_lock_bh(&eio->lock);
++	list_add(&eio_handler->list, &eio->head);
++	spin_unlock_bh(&eio->lock);
++out:
++	return ret;
++}
++
++
+ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
+ 				__releases(kernel_lock)
+ 				__acquires(kernel_lock)
+@@ -3444,6 +3507,17 @@
+ 		 "Opts: %s%s", descr, sbi->s_es->s_mount_opts,
+ 		 *sbi->s_es->s_mount_opts ? "; " : "");
+ 
++	/*
++	 * currently io-error-guard only works for non-journal mode on Ext4
++	 */
++	if (!EXT4_SB(sb)->s_journal) {
++		ext4_msg(sb, KERN_INFO, "in no-journal mode,"
++			"enable Ext4 io-error-guard plugin");
++		err = ext4_io_error_guard_init(sb);
++		if (err)
++			goto failed_mount4;
++	}
++
+ 	lock_kernel();
+ 	return 0;
+ 
+Index: linux-2.6.32-220.13.1.el5/include/linux/fs.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/fs.h	2012-04-19 17:24:49.274454525 +0800
++++ linux-2.6.32-220.13.1.el5/include/linux/fs.h	2012-04-19 17:26:39.142999343 +0800
+@@ -681,6 +681,21 @@
+ 	 * of struct page's "mapping" pointer be used for PAGE_MAPPING_ANON.
+ 	 */
+ 
++struct eio {
++	unsigned int threshold;
++	unsigned int counter;
++	unsigned long last_jiffies;
++	unsigned int interval;
++	spinlock_t lock;
++	struct list_head head;
++};
++struct eio_handler {
++	struct list_head list;
++	void (*handler)(struct eio_handler *eio_handler);
++	struct block_device *bdev;
++	char *fs_name;
++};
++
+ struct block_device {
+ 	dev_t			bd_dev;  /* not a kdev_t - it's a search key */
+ 	struct inode *		bd_inode;	/* will die */
+@@ -712,6 +727,8 @@
+ 	int			bd_fsfreeze_count;
+ 	/* Mutex for freeze */
+ 	struct mutex		bd_fsfreeze_mutex;
++
++	struct eio		bd_eio;
+ };
+ 
+ /*

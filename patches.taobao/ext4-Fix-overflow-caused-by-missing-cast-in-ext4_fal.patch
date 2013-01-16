@@ -1,0 +1,47 @@
+From 29ae07b702cb77dbc24b0843f15ee8cf8a642311 Mon Sep 17 00:00:00 2001
+From: Utako Kusaka <u-kusaka@wm.jp.nec.com>
+Date: Wed, 27 Jul 2011 22:11:20 -0400
+Subject: [PATCH] ext4: Fix overflow caused by missing cast in ext4_fallocate()
+Patch-mainline: 29ae07b702cb77dbc24b0843f15ee8cf8a642311
+References: 
+
+The logical block number in map.l_blk is a __u32, and so before we
+shift it left, by the block size, we neeed cast it to a 64-bit size.
+
+Otherwise i_size can be corrupted on an ENOSPC.
+
+# df -T /mnt/mp1
+Filesystem    Type   1K-blocks      Used Available Use% Mounted on
+/dev/sda6     ext4     9843276    153056   9190200   2% /mnt/mp1
+# fallocate -o 0 -l 2199023251456 /mnt/mp1/testfile
+Fallocate: /mnt/mp1/testfile: fallocate failed: No space left on device
+# stat /mnt/mp1/testfile
+  File: `/mnt/mp1/testfile'
+  Size: 4293656576	Blocks: 19380440   IO Block: 4096   regular file
+Device: 806h/2054d	Inode: 12          Links: 1
+Access: (0644/-rw-r--r--)  Uid: (    0/    root)   Gid: (    0/    root)
+Access: 2011-07-25 13:01:31.414490496 +0900
+Modify: 2011-07-25 13:01:31.414490496 +0900
+Change: 2011-07-25 13:01:31.454490495 +0900
+
+Signed-off-by: Utako Kusaka <u-kusaka@wm.jp.nec.com>
+Signed-off-by: "Theodore Ts'o" <tytso@mit.edu>
+Acked-by: Tao Ma <boyu.mt@taobao.com>
+
+---
+ fs/ext4/extents.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+Index: linux-2.6.32-220.0.0.el5/fs/ext4/extents.c
+===================================================================
+--- linux-2.6.32-220.0.0.el5.orig/fs/ext4/extents.c	2011-12-13 14:29:45.639347577 +0800
++++ linux-2.6.32-220.0.0.el5/fs/ext4/extents.c	2011-12-13 14:30:53.547684323 +0800
+@@ -3747,7 +3747,7 @@
+ 						blkbits) >> blkbits))
+ 			new_size = offset + len;
+ 		else
+-			new_size = (block + ret) << blkbits;
++			new_size = ((loff_t) block + ret) << blkbits;
+ 
+ 		ext4_falloc_update_inode(inode, mode, new_size,
+ 						buffer_new(&map_bh));

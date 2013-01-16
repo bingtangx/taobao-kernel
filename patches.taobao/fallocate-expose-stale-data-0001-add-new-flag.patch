@@ -1,0 +1,41 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH 1/3 v2.1] vfs: add FALLOC_FL_EXPOSE_STALE_DATA flag in fallocate
+Patch-mainline: in house patch
+References: 
+
+FALLOC_FL_EXPOSE_STALE_DATA flag is defined for avoiding to initialized an
+unwritten extent.
+
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+Acked-by: 
+
+Index: linux-2.6.32-220.13.1.el5/fs/open.c
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/fs/open.c
++++ linux-2.6.32-220.13.1.el5/fs/open.c
+@@ -227,7 +227,8 @@ int do_fallocate(struct file *file, int 
+ 		return -EINVAL;
+ 
+ 	/* Return error if mode is not supported */
+-	if (mode && !(mode & FALLOC_FL_KEEP_SIZE))
++	if (mode &&
++	    (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_EXPOSE_STALE_DATA)))
+ 		return -EOPNOTSUPP;
+ 
+ 	if (!(file->f_mode & FMODE_WRITE))
+Index: linux-2.6.32-220.13.1.el5/include/linux/falloc.h
+===================================================================
+--- linux-2.6.32-220.13.1.el5.orig/include/linux/falloc.h
++++ linux-2.6.32-220.13.1.el5/include/linux/falloc.h
+@@ -3,6 +3,11 @@
+ 
+ #define FALLOC_FL_KEEP_SIZE	0x01 /* default is extend size */
+ 
++/* We set FALLOC_FL_EXPOSE_STALE_DATA to 0x04 because, in current upstream,
++ * FALLOC_FL_PUNCH_HOLE is 0x02.
++ */
++#define FALLOC_FL_EXPOSE_STALE_DATA	0x04 /* expose stale data */
++
+ #ifdef __KERNEL__
+ 
+ /*

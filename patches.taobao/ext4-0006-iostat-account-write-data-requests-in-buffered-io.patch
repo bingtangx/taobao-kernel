@@ -1,0 +1,41 @@
+From: Zheng Liu <wenqing.lz@taobao.com>
+Subject: [PATCH v2 6/8] ext4: account the data request of write operations in buffered io
+Patch-mainline: in house patch
+
+We call ext4_ios_write() function to account the data request of write in
+buffered io.
+
+Signed-off-by: Wang Shaoyan <wangshaoyan.pt@taobao.com>
+Signed-off-by: Zheng Liu <wenqing.lz@taobao.com>
+
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:14:13.389031581 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:14:22.713077816 +0800
+@@ -2967,6 +2967,8 @@
+ 	struct inode *inode = page->mapping->host;
+ 
+ 	trace_ext4_writepage(inode, page);
++	ext4_ios_write(inode->i_sb, NULL, NULL, EXT4_IOS_REGULAR_DATA,
++		       ext4_blocks_per_page(inode));
+ 	size = i_size_read(inode);
+ 	if (page->index == size >> PAGE_CACHE_SHIFT)
+ 		len = size & ~PAGE_CACHE_MASK;
+@@ -3389,6 +3391,8 @@
+ out_writepages:
+ 	wbc->nr_to_write -= nr_to_writebump;
+ 	wbc->range_start = range_start;
++	ext4_ios_write(inode->i_sb, NULL, NULL, EXT4_IOS_REGULAR_DATA,
++		       ext4_blocks_per_page(inode) * pages_written);
+ 	trace_ext4_da_writepages_result(inode, wbc, ret, pages_written);
+ 	return ret;
+ }
+@@ -4493,6 +4497,8 @@
+ 	} else {
+ 		if (ext4_should_order_data(inode))
+ 			err = ext4_jbd2_file_inode(handle, inode);
++		ext4_ios_write(inode->i_sb, handle, bh,
++			       EXT4_IOS_REGULAR_DATA, 1);
+ 		mark_buffer_dirty(bh);
+ 	}
+ 

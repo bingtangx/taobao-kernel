@@ -1,0 +1,51 @@
+From f4fc17f19d7fa4e601b3320afbf7b7ac1b04dc07 Mon Sep 17 00:00:00 2001
+From: Tao Ma <boyu.mt@taobao.com>
+Date: Tue, 1 Nov 2011 14:44:53 +0800
+Subject: [PATCH 01/22] ext4: Move extra inode read to a new function.
+Patch-mainline: in-house
+
+Currently, in ext4_iget we do a simple check to see whether
+there does exist some information starting from the end
+of i_extra_size. With inline data added, this procedure
+is more complicated. So move it to a new function named
+ext4_iget_extra_inode.
+
+Signed-off-by: Tao Ma <boyu.mt@taobao.com>
+---
+Index: linux-2.6.32-220.23.1.el5/fs/ext4/inode.c
+===================================================================
+--- linux-2.6.32-220.23.1.el5.orig/fs/ext4/inode.c	2012-06-20 00:08:15.631257549 +0800
++++ linux-2.6.32-220.23.1.el5/fs/ext4/inode.c	2012-06-20 00:08:21.719287735 +0800
+@@ -5165,6 +5165,16 @@
+ 	}
+ }
+ 
++static inline void ext4_iget_extra_inode(struct inode *inode,
++					 struct ext4_inode *raw_inode,
++					 struct ext4_inode_info *ei)
++{
++	__le32 *magic = (void *)raw_inode +
++			EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize;
++	if (*magic == cpu_to_le32(EXT4_XATTR_MAGIC))
++		ext4_set_inode_state(inode, EXT4_STATE_XATTR);
++}
++
+ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
+ {
+ 	struct ext4_iloc iloc;
+@@ -5275,13 +5285,8 @@
+ 			/* The extra space is currently unused. Use it. */
+ 			ei->i_extra_isize = sizeof(struct ext4_inode) -
+ 					    EXT4_GOOD_OLD_INODE_SIZE;
+-		} else {
+-			__le32 *magic = (void *)raw_inode +
+-					EXT4_GOOD_OLD_INODE_SIZE +
+-					ei->i_extra_isize;
+-			if (*magic == cpu_to_le32(EXT4_XATTR_MAGIC))
+-				ext4_set_inode_state(inode, EXT4_STATE_XATTR);
+-		}
++		} else
++			ext4_iget_extra_inode(inode, raw_inode, ei);
+ 	} else
+ 		ei->i_extra_isize = 0;
+ 
