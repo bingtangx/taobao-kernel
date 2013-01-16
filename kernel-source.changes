@@ -58,6 +58,13 @@ Let writeback not agressively like what 18 does.
 - patches.taobao/fixup-bdi-writeback-task-burn-cpu-cycles.patch:
 
 -------------------------------------------------------------------
+Tue Nov 13 11:29:41 CST 2012 - boyu.mt@taobao.com
+
+Change rpmbuild so that it can build debugino-common-successfully.
+
+- rpm/taobao-kernel-build.sh:
+
+-------------------------------------------------------------------
 Mon Oct  8 19:17:36 CST 2012 - boyu.mt@taobao.com
 
 Add SO_REUSEPORT to fix load imbalance in listening.
@@ -65,12 +72,12 @@ Add SO_REUSEPORT to fix load imbalance in listening.
 - patches.taobao/net_backport_SO_REUSEPORT_patch_to_fix_load_imbalance.patch:
 
 -------------------------------------------------------------------
-Tue Sep  4 11:08:35 CST 2012 - gaoyang.zyh@taobao.com
+Tue Sep  4 11:15:07 CST 2012 - gaoyang.zyh@taobao.com
 
-add rpmbuild wrapper.
+add a rpmbuild wrapper and README
 
-- rpm/README: for most useful options
-- rpm/fullbuild.sh: a full build script
+- rpm/README:
+- rpm/fullbuild.sh:
 - scripts/package.py:
 
 -------------------------------------------------------------------
@@ -177,14 +184,20 @@ mm: fix wrong order of operations in __lru_cache_add.
 - patches.taobao/mm_fix_wrong_order_of_operations_in__lru_cache_add.patch:
 
 -------------------------------------------------------------------
-Fri Jun  8 12:12:13 CST 2012 - gaoyang.zyh@taobao.com
+Mon Jun 18 17:31:41 CST 2012 - gaoyang.zyh@taobao.com
+
+'hwcap' in ldconfg is set to 1 by Redhat in REHL6, so we'd better keep align with it.
+- rpm/kernel.spec.in:
+
+-------------------------------------------------------------------
+Fri Jun  8 12:13:46 CST 2012 - gaoyang.zyh@taobao.com
 
 Remove this one since it has been merged in RHEL kernel.
 
 - patches.driver/e1000e-1.3.10a.patch: Delete.
 
 -------------------------------------------------------------------
-Fri Jun  8 12:11:29 CST 2012 - gaoyang.zyh@taobao.com
+Fri Jun  8 12:13:13 CST 2012 - gaoyang.zyh@taobao.com
 
 Update to igb 3.2.10 driver.
 Enable igb-fix-default-behavior-of-RSS-parameter-to-automatically-detect-number-of-Rx-Tx-queues.patch
@@ -202,14 +215,14 @@ rt-stat: Export sum and total of RT samples in procfs instead of computing avera
   of computing average in kernel.
 
 -------------------------------------------------------------------
-Wed Jun  6 06:40:03 CST 2012 - boyu.mt@taobao.com
+Wed Jun  6 06:40:50 CST 2012 - boyu.mt@taobao.com
 
 Fix a build error.
 
 - patches.taobao/loadavg-bug-fix-003.patch:
 
 -------------------------------------------------------------------
-Tue Jun  5 07:08:19 CST 2012 - boyu.mt@taobao.com
+Tue Jun  5 07:19:16 CST 2012 - boyu.mt@taobao.com
 
 Backported bug fixes for the loadavg calculation.
 
@@ -226,13 +239,9 @@ fix a ^extent ext4 file system bug caused by the porting.
 - patches.taobao/bio-0004-ext4-inline-walk_page_buffers-into-mpage_da_submit_i.patch:
 
 -------------------------------------------------------------------
-Fri May 25 11:23:08 CST 2012 - bosong.ly@taobao.com
+Fri May 25 11:30:07 CST 2012 - bosong.ly@taobao.com
 
-- patches.taobao/block-throttle-Add-IO-throttled-information-in-blkcg.patch:
-  block/throttle: Add IO throttled information in blkcg.
-
-- Update to RHEL6.2 2.6.32-220.17.1 kernel
-  - patches.taobao/acridafs.patch: Refresh.
+- Upgrade to RHEL6.2 2.6.32-220.17.1 kernel
   - patches.taobao/block-strict-rq_affinity-0001.patch: Refresh.
   - patches.taobao/buffer-aio.patch: Refresh.
   - patches.taobao/context_switch_per_cpu_stat.patch: Refresh.
@@ -241,6 +250,11 @@ Fri May 25 11:23:08 CST 2012 - bosong.ly@taobao.com
   - redhat-kernel-changelog:
   - redhat-kernel-source/
   - redhat-kernel-version:
+
+-------------------------------------------------------------------
+Thu May 24 00:09:06 CST 2012 - boyu.mt@taobao.com
+
+- patches.taobao/block-throttle-Add-IO-throttled-information-in-blkcg.patch:
 
 -------------------------------------------------------------------
 Sat May 12 02:47:11 CST 2012 - boyu.mt@taobao.com
@@ -256,26 +270,26 @@ Thu May 10 18:57:20 CST 2012 - boyu.mt@taobao.com
 - patches.taobao/vmscan-activate-executable-pages-after-first-usage.patch:
 
 -------------------------------------------------------------------
-Wed May  9 17:19:05 CST 2012 - bosong.ly@taobao.com
+Wed May  9 17:19:41 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/net-SyncAck-rt_stat-per-IP-address.patch:
   fix a NULL pointer deference on calling inet6_sk().
 
 -------------------------------------------------------------------
-Tue May  8 18:08:33 CST 2012 - bosong.ly@taobao.com
+Tue May  8 18:09:12 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/exception-trace-always-printk-segfault-info.patch:
   exception-trace: always show segfault info in dmesg if
   /proc/sys/debug/exception-trace set to 2.
 
 -------------------------------------------------------------------
-Mon May  7 21:43:38 CST 2012 - bosong.ly@taobao.com
+Mon May  7 21:46:26 CST 2012 - bosong.ly@taobao.com
 
-- Correct patch format, add missing module_exit() lines,
+- Corrrect patch format, add missing module_exit() lines,
   - patches.taobao/overlayfs-0006-overlay-filesystem.patch: Refresh.
 
 -------------------------------------------------------------------
-Mon May  7 17:25:21 CST 2012 - bosong.ly@taobao.com
+Mon May  7 17:34:30 CST 2012 - bosong.ly@taobao.com
 
 - Merge overlay file system,
   - Update config files.
@@ -303,14 +317,14 @@ Mon May  7 17:25:21 CST 2012 - bosong.ly@taobao.com
   - patches.taobao/acridafs.patch: Refresh.
 
 -------------------------------------------------------------------
-Mon May  7 15:55:30 CST 2012 - bosong.ly@taobao.com
+Mon May  7 15:57:34 CST 2012 - bosong.ly@taobao.com
 
 - Update config files.
   - config/
   - patches.taobao/kernel-hookers-service.patch
 
 -------------------------------------------------------------------
-Mon May  7 15:26:19 CST 2012 - bosong.ly@taobao.com
+Mon May  7 15:27:55 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/export-necessary-kernel-symbols-for-kernel-modules.patch:
   export symbols needed for external kernel module (renamed and updated from
@@ -319,23 +333,13 @@ Mon May  7 15:26:19 CST 2012 - bosong.ly@taobao.com
   SyncAck rt_stat per IP address statistic.
 
 -------------------------------------------------------------------
-Mon May  7 15:25:26 CST 2012 - bosong.ly@taobao.com
-
-- patches.taobao/export-necessary-kernel-symbols-for-kernel-modules.patch:
-  export symbols needed for external kernel module.
-- patches.taobao/kernel-hookers-service.patch: kernel hookers
-  service.
-- patches.taobao/net-SyncAck-rt_stat-per-IP-address.patch: net:
-  SyncAck rt_stat per IP address statistic.
-
--------------------------------------------------------------------
-Wed May  2 21:05:20 CST 2012 - bosong.ly@taobao.com
+Wed May  2 21:06:49 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/sched_x86-Fix-overflow-in-cyc2ns_offset.patch:
   Fix a minor TSC overflow when booting a kernel by kexec.
 
 -------------------------------------------------------------------
-Fri Apr 20 14:06:31 CST 2012 - bosong.ly@taobao.com
+Fri Apr 20 14:19:35 CST 2012 - bosong.ly@taobao.com
 
 - Update to RHEL6 2.6.32-220.13.1
   - Update config files.
@@ -344,7 +348,7 @@ Fri Apr 20 14:06:31 CST 2012 - bosong.ly@taobao.com
   - redhat-kernel-version:
 
 - Rebase patches to RHEL6 2.6.32-220.13.1
-  - patches.taobao/buffer-aio.patch: 
+  - patches.taobao/buffer-aio.patch:
   - patches.taobao/ext4-io-error-guard-for-file-system-protection-on-broken-storage-device.patch:
   - patches.taobao/mm-0001-compaction-checks-correct-fragmentation-index.patch:
   - patches.taobao/mm-0003-compaction-abort-compaction-if-too-many-pages-are.patch:
@@ -353,7 +357,7 @@ Fri Apr 20 14:06:31 CST 2012 - bosong.ly@taobao.com
   - patches.taobao/mm-sysctl-mlock-flush-pagevec.patch: Refresh.
   - patches.taobao/net-tcp-timewait-dynamic-config.patch: Refresh.
   - patches.taobao/nohz-0006-procfs-do-not-overflow-get_idle-iowait_time-for-nohz.patch:
-  - patches.taobao/tlock.patch: 
+  - patches.taobao/tlock.patch:
 
 - Delete patch due to we don't need it for s390 and ia64
   - patches.taobao/nohz-0007-procfs-do-not-confuse-jiffies-with-cputime64_t.patch: Delete.
@@ -364,20 +368,20 @@ Fri Apr 20 14:06:31 CST 2012 - bosong.ly@taobao.com
     block: Make cfq_target_latency tunable through sysfs.
 
 -------------------------------------------------------------------
-Wed Mar 28 18:29:46 CST 2012 - bosong.ly@taobao.com
+Wed Mar 28 18:31:23 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/mm-sysctl-mlock-flush-pagevec.patch:
   set sysctl_mlock_flush_pagevec default to 0 (disable)
 
 -------------------------------------------------------------------
-Wed Mar 28 13:50:04 CST 2012 - bosong.ly@taobao.com
+Wed Mar 28 13:50:35 CST 2012 - bosong.ly@taobao.com
 
--  series.conf: add patches.driver/igb-fix-default-behavior-of-RSS-parameter-to-automatically-detect-number-of-Rx-Tx-queues.patch
+- series.conf: add patches.driver/igb-fix-default-behavior-of-RSS-parameter-to-automatically-detect-number-of-Rx-Tx-queues.patch
 
 -------------------------------------------------------------------
-Wed Mar 21 12:10:41 CST 2012 - bosong.ly@taobao.com
+Wed Mar 21 12:13:45 CST 2012 - bosong.ly@taobao.com
 
-- More fixes for bugfree#152721 (idle & iowait counter overflow)
+- More fixes for bugfree#125721 (idle & iowait ticks counter overflow):
   - patches.taobao/nohz-0001-fix-update_ts_time_stat-idle-accouting.patch:
     Update references (BF#152721).
   - patches.taobao/nohz-0002-make-idle-iowait-counter-update-conditional.patch:
@@ -392,9 +396,9 @@ Wed Mar 21 12:10:41 CST 2012 - bosong.ly@taobao.com
   - patches.taobao/nohz-0007-procfs-do-not-confuse-jiffies-with-cputime64_t.patch:
 
 -------------------------------------------------------------------
-Fri Mar  9 17:00:50 CST 2012 - bosong.ly@taobao.com
+Fri Mar  9 17:39:38 CST 2012 - bosong.ly@taobao.com
 
-- Update to RHEL6 2.6.32-220.7.1 kernel
+- Update to RHEL6 2.6.32-220.7.1 kernel.
   - Update config files.
   - patches.taobao/cfq_avoid_async_write_starve.patch: Refresh.
   - patches.taobao/cfq_request_deadline_policy.patch: Refresh.
@@ -407,13 +411,13 @@ Fri Mar  9 17:00:50 CST 2012 - bosong.ly@taobao.com
   - patches.taobao/writeback-improve-002-relax-busy-overwrites.patch:
     writeback: delay periodic work on wrap.
   - redhat-kernel-changelog:
+  - redhat-kernel-source/:
   - redhat-kernel-version:
-  - redhat-kernel-source/
 
 -------------------------------------------------------------------
-Fri Mar  9 01:32:23 CST 2012 - boyu.mt@taobao.com
+Fri Mar  9 01:35:03 CST 2012 - boyu.mt@taobao.com
 
-Add i/o stat for ext4.
+Add io stat for ext4.
 
 - patches.taobao/ext4-0001-iostat-add-counters-and-functions.patch:
 - patches.taobao/ext4-0002-iostat-define-wrapper-functions-for-buffer-layer.patch:
@@ -425,27 +429,27 @@ Add i/o stat for ext4.
 - patches.taobao/ext4-0008-iostat-show-the-result-of-accouting.patch:
 
 -------------------------------------------------------------------
-Thu Mar  1 15:42:59 CST 2012 - bosong.ly@taobao.com
+Thu Mar  1 15:43:51 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/kvm-set-KSM_RUN_STOP-by-default.patch: kvm:
   set KSM_RUN_STOP by default.
 
 -------------------------------------------------------------------
-Mon Feb 27 16:11:09 CST 2012 - bosong.ly@taobao.com
+Mon Feb 27 16:16:00 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/context_switch_per_cpu_stat.patch: Refresh.
 - patches.taobao/tlock.patch: Refresh.
 - enable patches.taobao/fix-type-of-cputime_to_usecs-in-asm-generic-cputime.h.patch
 
 -------------------------------------------------------------------
-Mon Feb 27 15:45:25 CST 2012 - bosong.ly@taobao.com
+Mon Feb 27 15:46:26 CST 2012 - bosong.ly@taobao.com
 
-- Update config files: modify ACPI_APET_GHES from m to y in -debug.config
+- Update config files: modify ACPI_APEI_GHES from m to y in -debug.config.
 
 -------------------------------------------------------------------
-Fri Feb 24 19:00:43 CST 2012 - bosong.ly@taobao.com
+Fri Feb 24 19:06:10 CST 2012 - bosong.ly@taobao.com
 
-- Update to RHEL 6.2 linux-2.6.32-220.4.2 kernel
+- Update to RHEL6.2 linux-2.6.32-220.4.2 kernel
   - Update config files.
   - redhat-kernel-source/kabitool:
   - redhat-kernel-source/kernel.spec:
@@ -459,233 +463,60 @@ Fri Feb 24 19:00:43 CST 2012 - bosong.ly@taobao.com
   - redhat-kernel-version:
 
 -------------------------------------------------------------------
-Fri Feb 24 16:40:35 CST 2012 - bosong.ly@taobao.com
+Fri Feb 24 16:31:16 CST 2012 - bosong.ly@taobao.com
 
-- Add Patch-mainline header to some patches.
-
--------------------------------------------------------------------
-Fri Feb 24 13:24:52 CST 2012 - bosong.ly@taobao.com
-
-- Update config files.
+- Update to RHEL6.2 2.6.32-220.2.1 kernel.
 
 -------------------------------------------------------------------
-Fri Feb 24 13:16:35 CST 2012 - bosong.ly@taobao.com
-
-- delete patches which are merged by redhat already:
-  - patches.taobao/block-eliminate-potential-for-infinite-loop-in-blkde.patch:
-  - patches.taobao/block-fix-patch-import-error-in-max_discard_sectors-.patch:
-  - patches.taobao/ext4-Fix-possible-lost-inode-write-in-no-journal-mode.diff:
-  - patches.taobao/jbd2_Fix_forever_sleeping_process_in_do_get_write_access.patch:
-  - patches.taobao/jbd_Fix_forever_sleeping_process_in_do_get_write_access.patch:
-  - patches.taobao/kgdb-0001-repair-gdbstub-to-match-the-gdbserial-protocol-speci.patch:
-  - patches.taobao/mm-0005-compaction-ensure-that-the-compaction-free-scanne.patch:
-  - patches.taobao/perf-Find_get_context-fix-the-per-cpu-counter-check.patch:
-  - patches.taobao/perf-Validate-cpu-early-in-perf_event_alloc.patch:
-
--------------------------------------------------------------------
-Fri Feb 24 12:55:51 CST 2012 - bosong.ly@taobao.com
-
-- Update to Redhat RHEL6.2 linux-2.6.32-220.2.1 kernel.
-  - Update config files.
-  - patches.driver/bnx2-disable-msi-when-no-per-vector-masking.patch: Refresh.
-  - patches.driver/igb-3.2.10.patch: Refresh.
-  - patches.driver/igb-fix-default-behavior-of-RSS-parameter-to-automatically-detect-number-of-Rx-Tx-queues.patch:
-    igb: fix default behavior of RSS parameter to automatically detect number of Rx/Tx queues.
-  - patches.taobao/0001-ext4-Move-extra-inode-read-to-a-new-function.patch: ext4: Move extra inode read to a new function.
-  - patches.taobao/0002-ext4-export-inline-xattr-functions.patch: ext4: export inline xattr functions.
-  - patches.taobao/0003-ext4-Add-the-basic-function-for-inline-data-support.patch: ext4: Add the basic function for inline data support.
-  - patches.taobao/0004-ext4-Add-read-support-for-inline-data.patch: ext4: Add read support for inline data.
-  - patches.taobao/0005-ext4-Add-normal-write-support-for-inline-data.patch: ext4: Add normal write support for inline data.
-  - patches.taobao/0006-ext4-Add-journalled-write-support-for-inline-data.patch: ext4: Add journalled write support for inline data.
-  - patches.taobao/0007-ext4-Add-delalloc-support-for-inline-data.patch: ext4: Add delalloc support for inline data.
-  - patches.taobao/0008-ext4-Create-a-new-function-ext4_init_new_dir.patch: ext4: Create a new function ext4_init_new_dir.
-  - patches.taobao/0009-ext4-Refactor-__ext4_check_dir_entry-to-accepts-star.patch: ext4: Refactor __ext4_check_dir_entry to accepts start and size.
-  - patches.taobao/0010-ext4-Create-__ext4_insert_dentry-for-dir-entry-inser.patch: ext4: Create __ext4_insert_dentry for dir entry insertion.
-  - patches.taobao/0011-ext4-let-add_dir_entry-handle-inline-data-properly.patch: ext4: let add_dir_entry handle inline data properly.
-  - patches.taobao/0012-ext4-Let-ext4_readdir-handle-inline-data.patch: ext4: Let ext4_readdir handle inline data.
-  - patches.taobao/0013-ext4-Create-a-new-function-search_dir.patch: ext4: Create a new function search_dir.
-  - patches.taobao/0014-ext4-let-ext4_find_entry-handle-inline-data.patch: ext4: let ext4_find_entry handle inline data.
-  - patches.taobao/0015-ext4-make-ext4_delete_entry-generic.patch: ext4: make ext4_delete_entry generic.
-  - patches.taobao/0016-ext4-let-ext4_delete_entry-handle-inline-data.patch: ext4: let ext4_delete_entry handle inline data.
-  - patches.taobao/0017-ext4-let-empty_dir-handle-inline-dir.patch: ext4: let empty_dir handle inline dir.
-  - patches.taobao/0018-ext4-let-ext4_rename-handle-inline-dir.patch: ext4: let ext4_rename handle inline dir.
-  - patches.taobao/0019-ext4-Let-fiemap-work-with-inline-data.patch: ext4: Let fiemap work with inline data.
-  - patches.taobao/0020-ext4-Evict-inline-data-out-if-we-needs-to-strore-xat.patch: ext4: Evict inline data out if we needs to strore xattr
-    in inode.
-  - patches.taobao/0021-ext4-Enable-ext4-inline-support.patch: ext4: Enable ext4 inline support.
-  - patches.taobao/0022-ext4-Fix-ext4_read_inline_page-bug.patch: ext4: Enable ext4 inline support.
-  - patches.taobao/0023-ext4-add-truncate-supoort-with-inline-data.patch: ext4: add truncate support with inline_data.
-  - patches.taobao/Makefile_fix_CPP_PATCH_number_assignment_error.patch: - patches.taobao/bigalloc-001-change-block-and-max_blocks-to-map.patch:
-    ext4: change "block" and "max_blocks" to struct ext4_map_blocks.
-  - patches.taobao/bigalloc-002-ext4-read-only-support-for-bigalloc-file-systems.patch: ext4: read-only support for bigalloc file systems.
-  - patches.taobao/bigalloc-003-enforce-bigalloc-restrictions-e.g.-no-online.patch: ext4: enforce bigalloc restrictions (e.g., no online resizing,
-    etc.).
-  - patches.taobao/bigalloc-004-convert-instances-of-EXT4_BLOCKS_PER_GROUP-to-EXT4_CLUSTERS_PER_GROUP.patch: ext4: convert instances of EXT4_BLOCKS_PER_GROUP to
-    EXT4_CLUSTERS_PER_GROUP.
-  - patches.taobao/bigalloc-005-factor-out-block-group-accounting-into-functions.patch: ext4: factor out block group accounting into functions.
-  - patches.taobao/bigalloc-006-split-out-ext4_free_blocks_after_init.patch: ext4: split out ext4_free_blocks_after_init().
-  - patches.taobao/bigalloc-007-bigalloc-changes-to-block-bitmap-initialization-functions.patch: ext4: bigalloc changes to block bitmap initialization functions.
-  - patches.taobao/bigalloc-008-convert-block-group-relative-offsets-to-use-clusters.patch: ext4: convert block group-relative offsets to use clusters.
-  - patches.taobao/bigalloc-009-teach-mballoc-preallocation-code-about-bigalloc-clusters.patch: ext4: teach mballoc preallocation code about bigalloc clusters.
-  - patches.taobao/bigalloc-010-teach-ext4_free_blocks-about-bigalloc-and-clusters.patch: ext4: teach ext4_free_blocks() about bigalloc and clusters.
-  - patches.taobao/bigalloc-011-teach-ext4_ext_map_blocks-about-the-bigalloc-feature.patch: ext4: teach ext4_ext_map_blocks() about the bigalloc feature.
-  - patches.taobao/bigalloc-012-teach-ext4_ext_truncate-about-the-bigalloc-feature.patch: ext4: teach ext4_ext_truncate() about the bigalloc feature.
-  - patches.taobao/bigalloc-013-convert-s_-dirty-free-blocks_counter-to-s_-dirty-free-clusters_counter.patch: ext4: convert s_{dirty,free}blocks_counter to
-    s_{dirty,free}clusters_counter.
-  - patches.taobao/bigalloc-014-convert-the-free_blocks-field-in-s_flex_groups-to-be-free_clusters.patch: ext4: convert the free_blocks field in s_flex_groups to be
-    free_clusters.
-  - patches.taobao/bigalloc-015-teach-ext4_statfs-to-deal-with-clusters-if-bigalloc-is-enabled.patch: ext4: teach ext4_statfs() to deal with clusters if bigalloc
-    is enabled.
-  - patches.taobao/bigalloc-016-tune-mballoc-s-default-group-prealloc-size-for-bigalloc-file-systems.patch: ext4: tune mballoc's default group prealloc size for bigalloc
-    file systems.
-  - patches.taobao/bigalloc-017-Fix-bigalloc-quota-accounting-and-i_blocks-value.patch: ext4: Fix bigalloc quota accounting and i_blocks value.
-  - patches.taobao/bigalloc-018-enable-mounting-bigalloc-as-read-write.patch: ext4: enable mounting bigalloc as read/write.
-  - patches.taobao/bigalloc-019-Rename-ext4_free_blks_-count-set-to-refer-to-clusters.patch: ext4: Rename ext4_free_blks_{count,set}() to refer to clusters.
-  - patches.taobao/bigalloc-020-rename-ext4_count_free_blocks-to-ext4_count_free_clusters.patch: ext4: rename ext4_count_free_blocks() to
-    ext4_count_free_clusters().
-  - patches.taobao/bigalloc-021-rename-ext4_free_blocks_after_init-to-ext4_free_clusters_after_init.patch: ext4: rename ext4_free_blocks_after_init() to
-    ext4_free_clusters_after_init().
-  - patches.taobao/bigalloc-022-rename-ext4_claim_free_blocks-to-ext4_claim_free_clusters.patch: ext4: rename ext4_claim_free_blocks() to
-    ext4_claim_free_clusters().
-  - patches.taobao/bigalloc-023-rename-ext4_has_free_blocks-to-ext4_has_free_clusters.patch: ext4: rename ext4_has_free_blocks() to ext4_has_free_clusters().
-  - patches.taobao/bigalloc-024-add-some-tracepoints-in-ext4-extents-c.patch: ext4: add some tracepoints in ext4/extents.c.
-  - patches.taobao/bigalloc-025-attempt-to-fix-race-in-bigalloc-code-path.patch: ext4: attempt to fix race in bigalloc code path.
-  - patches.taobao/bigalloc-026-convert-ext4_ext_handle_uninitialized_extents-to-map.patch: ext4: change "block" and "max_blocks" to struct ext4_map_blocks
-    for ext4_ext_handle_uninitialized_extents.
-  - patches.taobao/bio-0001-ext4-call-mpage_da_submit_io-from-mpage_da_map_block.patch: ext4: call mpage_da_submit_io() from mpage_da_map_blocks().
-  - patches.taobao/bio-0002-ext4-simplify-ext4_writepage.patch: ext4: simplify ext4_writepage().
-  - patches.taobao/bio-0003-ext4-inline-ext4_writepage-into-mpage_da_submit_io.patch: ext4: inline ext4_writepage() into mpage_da_submit_io().
-  - patches.taobao/bio-0004-ext4-inline-walk_page_buffers-into-mpage_da_submit_i.patch: ext4: inline walk_page_buffers() into mpage_da_submit_io.
-  - patches.taobao/block-strict-rq_affinity-0001.patch: Refresh.  - patches.taobao/buffer-aio.patch: A readahead complete notify
-    approach to implement buffer aio.
-  - patches.taobao/cfq_avoid_async_write_starve.patch: Refresh.
-  - patches.taobao/cfq_request_deadline_policy.patch: Refresh.
-  - patches.taobao/context_switch_per_cpu_stat.patch: Refresh.
-  - patches.taobao/ext4-Adding-error-check-after-calling-ext4_mb_regular_allocator.patch: Refresh.
-  - patches.taobao/ext4-Fix-buffer-head-leaks-after-calls-to-ext4_get_inode_loc.diff:
-  - patches.taobao/ext4-Fix-overflow-caused-by-missing-cast-in-ext4_fal.patch: Refresh.
-  - patches.taobao/ext4-Make-fsync-sync-new-parent-directories-in-no-jo.patch: Refresh.
-  - patches.taobao/ext4-Remove-extraneous-newlines-in-ext4_msg-calls.diff:
-  - patches.taobao/ext4-add-tracepoint-for-ext4_journal_start.patch: Refresh.
-  - patches.taobao/ext4-don-t-show-mount-options-in-proc-mounts-if-ther.patch: Refresh.
-  - patches.taobao/ext4-dont-warn-about-mnt_count-if-it-has-been-disabled.patch: ext4: don't warn about mnt_count if it has been disabled .
-  - patches.taobao/ext4-fix-kernel-oops-if-the-journal-superblock-has-a-non-zero-j_errno.diff:
-  - patches.taobao/ext4-free-allocated-and-pre-allocated-blocks-when-ch.patch: Refresh.
-  - patches.taobao/ext4-init-statistics-after-journal-recovery.patch: Refresh.
-  - patches.taobao/ext4-io-error-guard-add-netoops-support.patch: Refresh.
-  - patches.taobao/ext4-io-error-guard-for-file-system-protection-on-broken-storage-device.patch: Refresh.
-  - patches.taobao/ext4-remove-ext4_mb_return_to_preallocation.patch: Refresh.
-  - patches.taobao/ext4-use-dedicated-slab-caches-for-group_info-structures.patch: Refresh.
-  - patches.taobao/fix-type-of-cputime_to_usecs-in-asm-generic-cputime.h.patch: fix type of cputime_to_usecs in asm-generic/cputime.h.
-  - patches.taobao/flashcache.patch: Refresh.
-  - patches.taobao/kernel-gdb-trace-point-20120131.patch: Kernel Gdb Trace Point v20120131.
-  - patches.taobao/list-remove-prefetching-from-regular-list-iterators.patch: Refresh.
-  - patches.taobao/mm-0001-compaction-checks-correct-fragmentation-index.patch: Refresh.
-  - patches.taobao/mm-0002-batch-free-pcp-list-if-possible.patch: Refresh.
-  - patches.taobao/mm-0003-compaction-abort-compaction-if-too-many-pages-are.patch: Refresh.
-  - patches.taobao/mm-0008-page-allocator-reduce-fragmentation-in-buddy-allocat.patch: Refresh.
-  - patches.taobao/mm-0009-Fix-section-mismatch-for-setup_zone_pageset.patch: Refresh.
-  - patches.taobao/mm-0010-page_alloc.c-prevent-unending-loop-in-__alloc_pag.patch: Refresh.
-  - patches.taobao/mm-add-a-sysctl-to-decide-whether-to-do-context-readahead-or-not.patch: Refresh.
-  - patches.taobao/mm-sysctl-mlock-flush-pagevec.patch: mm: add a sysctl interface to enable/disable lru pagevec flush
-    in mlock/mlockall.
-  - patches.taobao/net-tcp-timewait-dynamic-config.patch: Refresh.
-  - patches.taobao/netoops_002_netconsole_remove_unneeded_reference_counter.patch: Refresh.
-  - patches.taobao/netoops_003_netconsole_introduce_locking_over_the_netpoll_fields.patch: Refresh.
-  - patches.taobao/netoops_004_netconsole_introduce_enabled_state_machine.patch: Refresh.
-  - patches.taobao/netoops_005_netconsole_call_netpoll_cleanup_in_process_context.patch: Refresh.
-  - patches.taobao/netoops_006_netconsole_wrap_the_list_and_locking_in_a_structure.patch: Refresh.
-  - patches.taobao/netoops_007_netconsole_push_configfs_subsystem_into_netpoll_targets.patch: Refresh.
-  - patches.taobao/netoops_008_netconsole_move_netdev_notifier_into_netpoll_targets.patch: Refresh.
-  - patches.taobao/netoops_009_netconsole_split_out_netpoll_targets_init_exit.patch: Refresh.
-  - patches.taobao/netoops_010_netconsole_add_pointer_to_netpoll_targets.patch: Refresh.
-  - patches.taobao/netoops_011_netconsole_rename_netconsole_target_to_netpoll_target.patch: Refresh.
-  - patches.taobao/netoops_012_netconsole_abstract_away_the_subsystem_name.patch: Refresh.
-  - patches.taobao/netoops_013_netconsole_move_setting_of_default_ports.patch: Refresh.
-  - patches.taobao/netoops_014_netpoll_introduce_netpoll_target_configs.patch: Refresh.
-  - patches.taobao/netoops_015_netpoll_move_target_code_into_netpoll_targets.patch: Refresh.
-  - patches.taobao/netoops_016_oops_pass_regs_to_oops_exit.patch: Refresh.
-  - patches.taobao/netoops_017_kmsg_dumper_pass_pt_regs_along_to_dumpers.patch: Refresh.
-  - patches.taobao/netoops_018_kmsg_dumper_introduce_a_new_soft_dump_reason.patch: Refresh.
-  - patches.taobao/netoops_019_sysrq_add_option_to_soft_dump.patch: Refresh.
-  - patches.taobao/netoops_020_add_core_functionality.patch: Refresh.
-  - patches.taobao/netoops_021_add_x86_specific_bits_to_packet_headers.patch: Refresh.
-  - patches.taobao/netoops_022_add_user_programmable_boot_id.patch: Refresh.
-  - patches.taobao/netoops_023_add_a_user_programmable_blob_to_the_netoops_packet.patch: Refresh.
-  - patches.taobao/netoops_024_add_oom_event.patch: Refresh.
-  - patches.taobao/nohz-0003-proc-consider-nohz-when-printing-idle-and-iowait-times.patch: Refresh.
-  - patches.taobao/pagecache_hit_accounting_002_add_func_and_structures.patch: Refresh.
-  - patches.taobao/pcie_aspm_disable_on_default.patch: Refresh.
-  - patches.taobao/perf-Find_get_context-fix-the-per-cpu-counter-check.patch: Refresh.
-  - patches.taobao/perf-Validate-cpu-early-in-perf_event_alloc.patch: Refresh.
-  - patches.taobao/tlock.patch: Refresh.
-  - patches.taobao/writeback-improve-001-stop-on-wrap-linux_mm_page-writeback.patch:
-    writeback: quit on wrap for .range_cyclic (write_cache_pages).
-  - patches.taobao/writeback-improve-002-relax-busy-overwrites.patch: writeback: delay periodic work on wrap.
-  - redhat-kernel-source/
-
--------------------------------------------------------------------
-Thu Feb 23 13:32:20 CST 2012 - bosong.ly@taobao.com
+Thu Feb 23 13:40:22 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/ext4-io-error-guard-for-file-system-protection-on-broken-storage-device.patch:
-  Refresh to remove merge confliction.
+  refresh to remove merge confliction.
 
 -------------------------------------------------------------------
-Thu Feb 23 13:19:28 CST 2012 - bosong.ly@taobao.com
+Thu Feb 23 13:20:11 CST 2012 - bosong.ly@taobao.com
 
 - patches.taobao/ext4-io-error-guard-for-file-system-protection-on-broken-storage-device.patch:
   do not call ext4_sync_fs() before setting MS_RDONLY flag.
 
 -------------------------------------------------------------------
-Tue Feb 21 19:18:18 CST 2012 - bosong.ly@taobao.com
+Tue Feb 21 19:28:30 CST 2012 - bosong.ly@taobao.com
 
-- patches.taobao/ext4-io-error-guard-add-netoops-support.patch:
-  fix several NULL dereference bugs.
+- patches.taobao/ext4-io-error-guard-add-netoops-support.patch: refresh
 - patches.taobao/ext4-io-error-guard-for-file-system-protection-on-broken-storage-device.patch:
-  Refresh.
+  fix several NULL dereference bugs.
 - patches.taobao/fix-typo-of-do_hypervisor_callback-in-entry_64.S.patch:
   fix typo of do_hypervisor_callback in entry_64.S.
 - patches.taobao/remove-redundant-variable-in-struct-pmcraid_cmd.patch:
   remove redundant sense_buffer member in pmcraid_cmd.
 - patches.taobao/x86-gcc-4.6-Use-gcc--m-options-when-building-vdso.patch:
-  fix compiling warning.
+  fix compiling warnings.
 
 -------------------------------------------------------------------
-Fri Feb  3 11:52:48 CST 2012 - bosong.ly@taobao.com
-
-- rpm/kernel.spec.in: add dependence to mkinitrd >= 5.1.19.6-61.tb345.
-  this modification only on 5u branch, on 6u system we don't need to
-  update mkinitrd.
-
--------------------------------------------------------------------
-Tue Jan 31 17:36:32 CST 2012 - bosong.ly@taobao.com
+Tue Jan 31 17:38:22 CST 2012 - bosong.ly@taobao.com
 
 - Update debug config files.
   - remove drbd since no-body uses it currently.
   - add tlock kernel module from master branch.
 
 -------------------------------------------------------------------
-Tue Jan 31 16:51:50 CST 2012 - bosong.ly@taobao.com
+Tue Jan 31 16:49:38 CST 2012 - bosong.ly@taobao.com
 
 - Update config files:
   - remove drbd since no-body uses it currently.
   - add tlock kernel module from master branch.
-
--------------------------------------------------------------------
-Tue Jan 31 16:43:41 CST 2012 - bosong.ly@taobao.com
-
 - patches.taobao/ext4-set-file-system-to-read-only-by-io-error-threshold.patch: Delete.
 - patches.taobao/ext4-io-error-guard-for-file-system-protection-on-broken-storage-device.patch:
   Ext4: io error guard for file system protection on broken storage device.
 - patches.taobao/ext4-io-error-guard-add-netoops-support.patch:
-  writeback: quit on wrap for .range_cyclic (write_cache_pages).
+  Ext4: Add netoops support to io error guard.
 - patches.taobao/pcie_aspm_disable_on_default.patch: power
   management: disable pcie_aspm on default.
 - patches.taobao/perf-Validate-cpu-early-in-perf_event_alloc.patch: Refresh.
 - patches.taobao/tlock.patch: tlock: port tlock_kern kernel module to 2.6.32 version.
 
 -------------------------------------------------------------------
-Thu Jan 19 14:22:21 CST 2012 - bosong.ly@taobao.com
+Thu Jan 19 14:31:37 CST 2012 - bosong.ly@taobao.com
 
 - Update config files: We did testing ourselves, for haproxy disable
   NO_HZ isn't that much faster as people reported. We don't gain any
@@ -693,7 +524,7 @@ Thu Jan 19 14:22:21 CST 2012 - bosong.ly@taobao.com
   therefore re-enable it.
 
 -------------------------------------------------------------------
-Mon Dec 26 17:32:59 CST 2011 - boyu.mt@taobao.com
+Tue Dec 27 14:36:35 CST 2011 - boyu.mt@taobao.com
 
 - patches.taobao/nohz-0002-make-idle-iowait-counter-update-conditional.patch:
   Refresh.
@@ -701,7 +532,7 @@ Mon Dec 26 17:32:59 CST 2011 - boyu.mt@taobao.com
   Fix a build bug with no_hz disbled.
 
 -------------------------------------------------------------------
-Thu Dec 22 18:31:05 CST 2011 - bosong.ly@taobao.com
+Thu Dec 22 18:39:51 CST 2011 - bosong.ly@taobao.com
 
 - Update config files: disable NO_HZ.
 - Fix incorrect bash interpreter header to #!/bin/bash
@@ -736,8 +567,6 @@ Mon Dec 5 11:27:00 CST 2011 - gaoyang.zyh@taobao.com
 
 - The build experiment failed, so we fall back to build the rhel5 kernel on 
   rhel5, exactly as before. The relevant commits are reverted now.
-  Also we turned off kernel-debug building, we will turn it on after seperating
-  the build of kernel-debug and kernel-debug-debuginfo.
 
 -------------------------------------------------------------------
 Wed Nov 30 21:26:15 CST 2011 - boyu.mt@taobao.com
@@ -747,10 +576,9 @@ Wed Nov 30 21:26:15 CST 2011 - boyu.mt@taobao.com
   or not.
 
 -------------------------------------------------------------------
-Wed Nov 30 11:12:29 CST 2011 - gaoyang.zyh@taobao.com
+Wed Nov 30 10:53:31 CST 2011 - gaoyang.zyh@taobao.com
 
-- differentiate the building release from the target running release.
-
+- rpm/kernel.spec.in: differentiate the building release from the target running release.
   Since Nov 29 we build the kernels for both RHEL5 and RHEL6 on RHEL6, for better fancy
   debuginfo and the debuginfo package for debug kernel (well I know it's a bit confusing,
   the rpmbuild module on old RHEL5 has a bug, which makes it unable to build the too large
@@ -759,63 +587,59 @@ Wed Nov 30 11:12:29 CST 2011 - gaoyang.zyh@taobao.com
   is the same with the target platform anymore, so I made this change.
 
   ***************************************************************************************
-  ** From now on, to build for RHEL5, you have to append a '--with rhel5' option to the *
-  ** rpmbuild command line.                                                             *
+  ** From now on, to build on RHEL5 (only for manual building, ABS use unified RHEL6), **
+  ** you have to append a '--with rhel5' option to the rpmbuild command line.          **
   ***************************************************************************************
 
-	- rpm/kernel.spec.in:
-	- rpm/taobao-kernel-build.sh:
+-------------------------------------------------------------------
+Tue Nov 29 12:04:09 CST 2011 - gaoyang.zyh@taobao.com
+
+- rpm/kernel.spec.in: consolidate the lsb_release version judgement.
 
 -------------------------------------------------------------------
-Tue Nov 29 12:11:23 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/kernel.spec.in: consolidate lsb_release version judgement.
-
--------------------------------------------------------------------
-Tue Nov 29 11:42:12 CST 2011 - gaoyang.zyh@taobao.com
+Tue Nov 29 11:42:53 CST 2011 - gaoyang.zyh@taobao.com
 
 - rpm/taobao-kernel-build.sh: turn on debug kernel build.
 
 -------------------------------------------------------------------
-Tue Nov 29 01:56:50 CST 2011 - bosong.ly@taobao.com
+Tue Nov 29 02:03:23 CST 2011 - bosong.ly@taobao.com
 
-- MAINTAINERS: add zhengming@taobao.com into maintainers.
-
--------------------------------------------------------------------
-Tue Nov 29 01:03:04 CST 2011 - bosong.ly@taobao.com
-
+- MAINTAINERS: add zhengming@taobao.com into maintainers list.
 - patches.driver/igb-3.2.10.patch: backport igb 3.2.10 driver
   to RHEL6 2.6.32 kernel.
 - rebase patches to remove chunk offset warning in patches applying:
   - patches.taobao/netoops_016_oops_pass_regs_to_oops_exit.patch
   - patches.taobao/netoops_017_kmsg_dumper_pass_pt_regs_along_to_dumpers.patch
-- patches.taobao/tcp_v4_err.lock-fix.patch: tcp: Don't change unlocked socket state in tcp_v4_err().
+  - patches.taobao/perf-Validate-cpu-early-in-perf_event_alloc.patch
+- patches.taobao/tcp_v4_err.lock-fix.patch: Don't change unlocked socket state in tcp_v4_err().
 
 -------------------------------------------------------------------
-Tue Nov 29 01:00:35 CST 2011 - bosong.ly@taobao.com
+Tue Nov 29 02:00:33 CST 2011 - bosong.ly@taobao.com
 
+- MAINTAINERS:
 - patches.driver/igb-3.2.10.patch: backport igb 3.2.10 driver
   to RHEL6 2.6.32 kernel.
-- rebase patches to remove chunk offset warning in patches applying:
-  - patches.taobao/netoops_016_oops_pass_regs_to_oops_exit.patch
-  - patches.taobao/netoops_017_kmsg_dumper_pass_pt_regs_along_to_dumpers.patch
-  - patches.taobao/tcp_v4_err.lock-fix.patch:
+- patches.taobao/tcp_v4_err.lock-fix.patch:
 
 -------------------------------------------------------------------
-Thu Nov 24 17:55:55 CST 2011 - bosong.ly@taobao.com
+Thu Nov 24 17:52:50 CST 2011 - bosong.ly@taobao.com
 
 - patches.driver/bnx2-disable-msi-when-no-per-vector-masking.patch:
   Disable bnx2 MSI support when no per-vector masking capability
   (BF#131606).
 
 -------------------------------------------------------------------
-Thu Nov 24 17:54:50 CST 2011 - bosong.ly@taobao.com
+Thu Nov 24 17:50:14 CST 2011 - bosong.ly@taobao.com
 
-- Update to RHEL6 kernel 2.6.32-131.21.1
+- Update to RHEL6 kernel 2.6.32-131.21.1:
   - redhat-kernel-changelog:
   - redhat-kernel-source/kernel.spec:
+  - redhat-kernel-source/linux-2.6.32/arch/powerpc/platforms/pseries/iommu.c:
   - redhat-kernel-source/linux-2.6.32/arch/x86/include/asm/pgtable-3level.h:
   - redhat-kernel-source/linux-2.6.32/arch/x86/include/asm/pgtable.h:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/kernel/apic/io_apic.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/kernel/cpu/perf_event.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/kvm/x86.c:
   - redhat-kernel-source/linux-2.6.32/arch/x86/mm/fault.c:
   - redhat-kernel-source/linux-2.6.32/arch/x86/mm/init_64.c:
   - redhat-kernel-source/linux-2.6.32/arch/x86/mm/pageattr.c:
@@ -823,39 +647,63 @@ Thu Nov 24 17:54:50 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-source/linux-2.6.32/arch/x86/xen/mmu.c:
   - redhat-kernel-source/linux-2.6.32/crypto/md5.c:
   - redhat-kernel-source/linux-2.6.32/drivers/acpi/osl.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/char/agp/generic.c:
   - redhat-kernel-source/linux-2.6.32/drivers/char/random.c:
   - redhat-kernel-source/linux-2.6.32/drivers/char/tpm/tpm.c:
   - redhat-kernel-source/linux-2.6.32/drivers/misc/enclosure.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/net/bnx2x/bnx2x_cmn.h:
   - redhat-kernel-source/linux-2.6.32/drivers/net/igb/igb_main.c:
   - redhat-kernel-source/linux-2.6.32/drivers/net/wireless/b43/dma.c:
   - redhat-kernel-source/linux-2.6.32/drivers/net/wireless/b43/dma.h:
   - redhat-kernel-source/linux-2.6.32/drivers/pci/hotplug/acpiphp_glue.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/pci/msi.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/scsi/ibmvscsi/ibmvscsi.c:
   - redhat-kernel-source/linux-2.6.32/drivers/scsi/iscsi_tcp.c:
   - redhat-kernel-source/linux-2.6.32/drivers/scsi/megaraid/megaraid_sas_base.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/scsi/megaraid/megaraid_sas_fusion.c:
   - redhat-kernel-source/linux-2.6.32/drivers/scsi/scsi_error.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/serial/8250.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/serial/8250_pci.c:
+  - redhat-kernel-source/linux-2.6.32/fs/buffer.c:
   - redhat-kernel-source/linux-2.6.32/fs/cifs/cifssmb.c:
   - redhat-kernel-source/linux-2.6.32/fs/cifs/connect.c:
+  - redhat-kernel-source/linux-2.6.32/fs/ecryptfs/main.c:
+  - redhat-kernel-source/linux-2.6.32/fs/ext4/inode.c:
+  - redhat-kernel-source/linux-2.6.32/fs/fscache/cache.c:
+  - redhat-kernel-source/linux-2.6.32/fs/fscache/main.c:
   - redhat-kernel-source/linux-2.6.32/fs/fuse/dev.c:
   - redhat-kernel-source/linux-2.6.32/fs/nfs/nfs4xdr.c:
   - redhat-kernel-source/linux-2.6.32/fs/partitions/efi.c:
   - redhat-kernel-source/linux-2.6.32/include/acpi/acpiosxf.h:
+  - redhat-kernel-source/linux-2.6.32/include/linux/buffer_head.h:
   - redhat-kernel-source/linux-2.6.32/include/linux/cryptohash.h:
+  - redhat-kernel-source/linux-2.6.32/include/linux/if_packet.h:
   - redhat-kernel-source/linux-2.6.32/include/linux/kvm_host.h:
+  - redhat-kernel-source/linux-2.6.32/include/linux/msi.h:
+  - redhat-kernel-source/linux-2.6.32/include/linux/netdevice.h:
+  - redhat-kernel-source/linux-2.6.32/include/linux/pci_ids.h:
   - redhat-kernel-source/linux-2.6.32/include/linux/random.h:
   - redhat-kernel-source/linux-2.6.32/include/linux/rcutree.h:
   - redhat-kernel-source/linux-2.6.32/include/net/ipv6.h:
   - redhat-kernel-source/linux-2.6.32/include/net/sctp/command.h:
   - redhat-kernel-source/linux-2.6.32/include/net/secure_seq.h:
+  - redhat-kernel-source/linux-2.6.32/include/net/sock.h:
   - redhat-kernel-source/linux-2.6.32/include/net/transp_v6.h:
   - redhat-kernel-source/linux-2.6.32/include/scsi/scsi_host.h:
+  - redhat-kernel-source/linux-2.6.32/kernel/panic.c:
+  - redhat-kernel-source/linux-2.6.32/kernel/perf_event.c:
   - redhat-kernel-source/linux-2.6.32/kernel/rcutree.c:
   - redhat-kernel-source/linux-2.6.32/kernel/taskstats.c:
   - redhat-kernel-source/linux-2.6.32/lib/Makefile:
   - redhat-kernel-source/linux-2.6.32/lib/md5.c:
+  - redhat-kernel-source/linux-2.6.32/mm/mmap.c:
+  - redhat-kernel-source/linux-2.6.32/mm/mremap.c:
   - redhat-kernel-source/linux-2.6.32/mm/rmap.c:
   - redhat-kernel-source/linux-2.6.32/net/8021q/vlan_core.c:
+  - redhat-kernel-source/linux-2.6.32/net/bridge/br_multicast.c:
   - redhat-kernel-source/linux-2.6.32/net/core/Makefile:
   - redhat-kernel-source/linux-2.6.32/net/core/secure_seq.c:
+  - redhat-kernel-source/linux-2.6.32/net/core/sock.c:
   - redhat-kernel-source/linux-2.6.32/net/dccp/ipv4.c:
   - redhat-kernel-source/linux-2.6.32/net/dccp/ipv6.c:
   - redhat-kernel-source/linux-2.6.32/net/ipv4/inet_hashtables.c:
@@ -868,6 +716,7 @@ Thu Nov 24 17:54:50 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-source/linux-2.6.32/net/ipv6/ip6_output.c:
   - redhat-kernel-source/linux-2.6.32/net/ipv6/tcp_ipv6.c:
   - redhat-kernel-source/linux-2.6.32/net/ipv6/udp.c:
+  - redhat-kernel-source/linux-2.6.32/net/packet/af_packet.c:
   - redhat-kernel-source/linux-2.6.32/net/sctp/sm_sideeffect.c:
   - redhat-kernel-source/linux-2.6.32/net/sctp/sm_statefuns.c:
   - redhat-kernel-source/linux-2.6.32/net/sunrpc/cache.c:
@@ -879,21 +728,127 @@ Thu Nov 24 17:54:50 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-source/.gitignore: Delete.
 
 -------------------------------------------------------------------
-Wed Nov 23 13:05:50 CST 2011 - bosong.ly@taobao.com
+Thu Nov 24 17:49:27 CST 2011 - bosong.ly@taobao.com
 
-- Rebase the patches to remove hunk offset warning in patche applying:
+- Upgdate to RHEL6 kernel 2.6.32-131.21.1:
+  - redhat-kernel-changelog:
+  - redhat-kernel-source/kernel.spec:
+  - redhat-kernel-source/linux-2.6.32/arch/powerpc/platforms/pseries/iommu.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/include/asm/pgtable-3level.h:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/include/asm/pgtable.h:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/kernel/apic/io_apic.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/kernel/cpu/perf_event.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/kvm/x86.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/mm/fault.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/mm/init_64.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/mm/pageattr.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/mm/pgtable.c:
+  - redhat-kernel-source/linux-2.6.32/arch/x86/xen/mmu.c:
+  - redhat-kernel-source/linux-2.6.32/crypto/md5.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/acpi/osl.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/char/agp/generic.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/char/random.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/char/tpm/tpm.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/misc/enclosure.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/net/bnx2x/bnx2x_cmn.h:
+  - redhat-kernel-source/linux-2.6.32/drivers/net/igb/igb_main.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/net/wireless/b43/dma.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/net/wireless/b43/dma.h:
+  - redhat-kernel-source/linux-2.6.32/drivers/pci/hotplug/acpiphp_glue.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/pci/msi.c:
+  - redhat-kernel-source/linux-2.6.32/drivers/scsi/ibmvscsi/ibmvscsi.c:
+- redhat-kernel-source/linux-2.6.32/drivers/scsi/iscsi_tcp.c:
+- redhat-kernel-source/linux-2.6.32/drivers/scsi/megaraid/megaraid_sas_base.c:
+- redhat-kernel-source/linux-2.6.32/drivers/scsi/megaraid/megaraid_sas_fusion.c:
+- redhat-kernel-source/linux-2.6.32/drivers/scsi/scsi_error.c:
+- redhat-kernel-source/linux-2.6.32/drivers/serial/8250.c:
+- redhat-kernel-source/linux-2.6.32/drivers/serial/8250_pci.c:
+- redhat-kernel-source/linux-2.6.32/fs/buffer.c:
+- redhat-kernel-source/linux-2.6.32/fs/cifs/cifssmb.c:
+- redhat-kernel-source/linux-2.6.32/fs/cifs/connect.c:
+- redhat-kernel-source/linux-2.6.32/fs/ecryptfs/main.c:
+- redhat-kernel-source/linux-2.6.32/fs/ext4/inode.c:
+- redhat-kernel-source/linux-2.6.32/fs/fscache/cache.c:
+- redhat-kernel-source/linux-2.6.32/fs/fscache/main.c:
+- redhat-kernel-source/linux-2.6.32/fs/fuse/dev.c:
+- redhat-kernel-source/linux-2.6.32/fs/nfs/nfs4xdr.c:
+- redhat-kernel-source/linux-2.6.32/fs/partitions/efi.c:
+- redhat-kernel-source/linux-2.6.32/include/acpi/acpiosxf.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/buffer_head.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/cryptohash.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/if_packet.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/kvm_host.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/msi.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/netdevice.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/pci_ids.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/random.h:
+- redhat-kernel-source/linux-2.6.32/include/linux/rcutree.h:
+- redhat-kernel-source/linux-2.6.32/include/net/ipv6.h:
+- redhat-kernel-source/linux-2.6.32/include/net/sctp/command.h:
+- redhat-kernel-source/linux-2.6.32/include/net/secure_seq.h:
+- redhat-kernel-source/linux-2.6.32/include/net/sock.h:
+- redhat-kernel-source/linux-2.6.32/include/net/transp_v6.h:
+- redhat-kernel-source/linux-2.6.32/include/scsi/scsi_host.h:
+- redhat-kernel-source/linux-2.6.32/kernel/panic.c:
+- redhat-kernel-source/linux-2.6.32/kernel/perf_event.c:
+- redhat-kernel-source/linux-2.6.32/kernel/rcutree.c:
+- redhat-kernel-source/linux-2.6.32/kernel/taskstats.c:
+- redhat-kernel-source/linux-2.6.32/lib/Makefile:
+- redhat-kernel-source/linux-2.6.32/lib/md5.c:
+- redhat-kernel-source/linux-2.6.32/mm/mmap.c:
+- redhat-kernel-source/linux-2.6.32/mm/mremap.c:
+- redhat-kernel-source/linux-2.6.32/mm/rmap.c:
+- redhat-kernel-source/linux-2.6.32/net/8021q/vlan_core.c:
+- redhat-kernel-source/linux-2.6.32/net/bridge/br_multicast.c:
+- redhat-kernel-source/linux-2.6.32/net/core/Makefile:
+- redhat-kernel-source/linux-2.6.32/net/core/secure_seq.c:
+- redhat-kernel-source/linux-2.6.32/net/core/sock.c:
+- redhat-kernel-source/linux-2.6.32/net/dccp/ipv4.c:
+- redhat-kernel-source/linux-2.6.32/net/dccp/ipv6.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv4/inet_hashtables.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv4/inetpeer.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv4/netfilter/nf_nat_proto_common.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv4/route.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv4/tcp_ipv4.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv6/af_inet6.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv6/inet6_hashtables.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv6/ip6_output.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv6/tcp_ipv6.c:
+- redhat-kernel-source/linux-2.6.32/net/ipv6/udp.c:
+- redhat-kernel-source/linux-2.6.32/net/packet/af_packet.c:
+- redhat-kernel-source/linux-2.6.32/net/sctp/sm_sideeffect.c:
+- redhat-kernel-source/linux-2.6.32/net/sctp/sm_statefuns.c:
+- redhat-kernel-source/linux-2.6.32/net/sunrpc/cache.c:
+- redhat-kernel-source/linux-2.6.32/net/sunrpc/rpcb_clnt.c:
+- redhat-kernel-source/linux-2.6.32/net/sunrpc/sched.c:
+- redhat-kernel-source/linux-2.6.32/tools/perf/util/config.c:
+- redhat-kernel-source/linux-kernel-test.patch:
+- redhat-kernel-version:
+- redhat-kernel-source/.gitignore: Delete.
+
+-------------------------------------------------------------------
+Wed Nov 23 13:09:22 CST 2011 - bosong.ly@taobao.com
+
+- Rebase the patches to remove hunk offset warning in patch applying:
   - patches.taobao/ext4-fix-races-in-ext4_sync_parent.patch
   - patches.taobao/ext4-set-file-system-to-read-only-by-io-error-threshold.patch
   - patches.taobao/mm-increase-RECLAIM_DISTANCE-to-30.patch
 
 -------------------------------------------------------------------
-Tue Nov 22 11:15:11 CST 2011 - gaoyang.zyh@taobao.com
+Tue Nov 22 11:25:42 CST 2011 - gaoyang.zyh@taobao.com
 
-- Forgot to add the entry in series.conf, for mm-increase-RECLAIM_DISTANCE-to-30.patch
+- Forgot to add the entry in series.conf, for mm-increase-RECLAIM_DISTANCE-to-30.patch 
 
 -------------------------------------------------------------------
-Tue Nov 22 11:00:43 CST 2011 - gaoyang.zyh@taobao.com
+Tue Nov  1 00:41:38 CST 2011 - boyu.mt@taobao.com
 
+- patches.taobao/ext4-fix-no-dirty-buffer-in-convert-to-initialized.patch:
+  ext4: fix no mark dirty in ext4_ext_convert_to_initialized().
+
+This fix the redhat bugzilla 742091.
+
+-------------------------------------------------------------------
+Mon Oct 31 14:14:25 CST 2011 - gaoyang.zyh@taobao.com
 Add these patches to support upstream strict rq_affinity feature,
 which can make the softirqs run on every cores.
 
@@ -905,23 +860,15 @@ which can make the softirqs run on every cores.
   improve rq_affinity placement.
 
 -------------------------------------------------------------------
-Tue Nov  1 00:41:38 CST 2011 - boyu.mt@taobao.com
-
-- patches.taobao/ext4-fix-no-dirty-buffer-in-convert-to-initialized.patch:
-  ext4: fix no mark dirty in ext4_ext_convert_to_initialized().
-
-This fix the redhat bugzilla 742091.
-
--------------------------------------------------------------------
-Mon Sep  5 17:38:21 CST 2011 - gaoyang.zyh@taobao.com
-
+Mon Sep  5 18:35:16 CST 2011 - gaoyang.zyh@taobao.com
 By introducing this fix we can alleviate the phenomemon that kernel
-enables zone_reclaim_mode during boot by mistake on some NUMA servers.
+enables zone_reclaim_mode during boot by mistake on some servers
 
-- patches.taobao/mm-increase-RECLAIM_DISTANCE-to-30.patch
+- patches.taobao/mm-increase-RECLAIM_DISTANCE-to-30.patch: mm:
+  increase RECLAIM_DISTANCE to 30.
 
 -------------------------------------------------------------------
-Wed Aug 31 15:47:57 CST 2011 - bosong.ly@taobao.com
+Wed Aug 31 15:32:01 CST 2011 - bosong.ly@taobao.com
 
 - Update to RHEL6 2.6.32-131.12.1.el6
   - MAINTAINERS:
@@ -993,6 +940,22 @@ Wed Aug 31 15:47:57 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-source/linux-2.6.32/trustdb.gpg: Delete.
 
 -------------------------------------------------------------------
+Wed Aug 31 10:30:46 CST 2011 - gaoyang.zyh@taobao.com
+
+- scripts/apply-patches.sh: forgot to add execute bit to it...
+
+-------------------------------------------------------------------
+Mon Aug 29 10:43:36 CST 2011 - gaoyang.zyh@taobao.com
+We untar the patches package and apply them directly before,
+which can't preserve the correct order of the patches. Fix
+this by applying the patches with apply-patches.sh, and in
+the order of series.conf.
+
+ - scripts/apply-patches.sh:
+ - scripts/mkspec.py:
+ - scripts/package.py:
+
+-------------------------------------------------------------------
 Fri Aug 19 21:47:31 CST 2011 - boyu.mt@taobao.com
 
 Backported some ext4 fixes from Ted's 3.1 pull request.
@@ -1008,17 +971,6 @@ Backported some ext4 fixes from Ted's 3.1 pull request.
   check_eofblocks_fl fails.
 
 -------------------------------------------------------------------
-Wed Aug 17 19:31:33 CST 2011 - gaoyang.zyh@taobao.com
-
-We untar the patches package and apply them directly before, which can't
-preserve the correct order of the patches. Fix this by applying the patches
-with apply-patches.sh, and in the order of series.conf.
-
-- scripts/apply-patches.sh:
-- scripts/mkspec.py:
-- scripts/package.py:
-
--------------------------------------------------------------------
 Fri Aug 12 23:46:43 CST 2011 - boyu.mt@taobao.com
 
 Support for dealine in cfq.
@@ -1027,13 +979,13 @@ Support for dealine in cfq.
   request-deadline policy.
 
 -------------------------------------------------------------------
-Mon Aug 15 17:05:09 CST 2011 - bosong.ly@taobao.com
+Mon Aug 15 17:04:15 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/ext4-set-file-system-to-read-only-by-io-error-threshold.patch:
-  remove referencing BF99632, it's another bug unrelated to this patch.
+  remove #BF99632, this is another bug unrelated to the patch.
 
 -------------------------------------------------------------------
-Mon Aug 15 16:58:55 CST 2011 - bosong.ly@taobao.com
+Mon Aug 15 17:02:04 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/ext4-set-file-system-to-read-only-by-io-error-threshold.patch:
   Ext4: Set file system to read-only by I/O error threshold
@@ -1052,24 +1004,14 @@ http://baike.corp.taobao.com/index.php/Block%E5%B1%82%E6%96%B0feature%E5%92%8Cbu
   block: fix patch import error in max_discard_sectors check.
 
 -------------------------------------------------------------------
-Tue Aug  2 15:48:28 CST 2011 - bosong.ly@taobao.com
+Tue Aug  2 15:56:32 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/list-remove-prefetching-from-regular-list-iterators.patch:
-  fix a compiling error introduced by modifying include/linux/list.h.
+  1) fix a compiling error introduced by modifying include/linux/list.h
+  2) remove prefetch() from tools/perf/util/include/linux/list.h.
 
 -------------------------------------------------------------------
-Tue Aug  2 11:31:03 CST 2011 - bosong.ly@taobao.com
-
-- patches.taobao/list-remove-prefetching-from-regular-list-iterators.patch:
-  remove prefetch() from tools/perf/util/include/linux/list.h. 
-
--------------------------------------------------------------------
-Mon Aug  1 14:02:19 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/taobao-kernel-build.sh: install kernel-headers before building.
-
--------------------------------------------------------------------
-Mon Aug  1 08:47:38 CST 2011 - bosong.ly@taobao.com
+Mon Aug  1 08:46:49 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/list-remove-prefetching-from-regular-list-iterators.patch:
   list: remove prefetching from regular list iterators .
@@ -1090,12 +1032,12 @@ Backport some mballoc fixes from upsteam ext4.
   ext4: use dedicated slab caches for group_info structures.
 
 -------------------------------------------------------------------
-Thu Jul 14 01:14:18 CST 2011 - bosong.ly@taobao.com
+Thu Jul 14 01:14:58 CST 2011 - bosong.ly@taobao.com
 
 - series.conf: re-order patches, make ext4 fixes together.
 
 -------------------------------------------------------------------
-Thu Jul 14 01:11:29 CST 2011 - bosong.ly@taobao.com
+Thu Jul 14 01:09:26 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/ip_vs_conn_locking_granularity.patch: LVS:
   Tune the locks of connection hash table from 16 to 256.
@@ -1103,9 +1045,9 @@ Thu Jul 14 01:11:29 CST 2011 - bosong.ly@taobao.com
   repair gdbstub to match the gdbserial protocol specification.
 
 -------------------------------------------------------------------
-Thu Jul 14 00:43:37 CST 2011 - bosong.ly@taobao.com
+Thu Jul 14 00:56:37 CST 2011 - bosong.ly@taobao.com
 
-- update to RHEL6 linux-2.6.32-131.6.1 kernel.
+- redhat-kernel-versiHEL6 linux-2.6.32-131.6.1 kernel.
   - MAINTAINERS:
   - patches.taobao/mm-0002-batch-free-pcp-list-if-possible.patch: Refresh.
   - patches.taobao/mm-0008-page-allocator-reduce-fragmentation-in-buddy-allocat.patch: Refresh.
@@ -1169,7 +1111,7 @@ Thu Jul 14 00:43:37 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-version:
 
 -------------------------------------------------------------------
-Fri Jul  1 21:43:29 CST 2011 - bosong.ly@taobao.com
+Fri Jul  1 21:45:08 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/mm-0009-Fix-section-mismatch-for-setup_zone_pageset.patch:
   mm: Fix section mismatch for setup_zone_pageset().
@@ -1190,23 +1132,16 @@ Fri Jul  1 20:05:59 CST 2011 - boyu.mt@taobao.com
   ext4: sync the directory inode in ext4_sync_parent().
 
 -------------------------------------------------------------------
-Sat Jun 25 16:25:53 CST 2011 - bosong.ly@taobao.com
+Fri Jun 24 16:13:55 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/mm-0006-compaction.c-avoid-double-mem_cgroup_del_lru.patch:
-  Refresh to remove a patching warning:
-	Hunk #1 succeeded at 360 (offset 11 lines).
+  Refresh to remove "lines offset" warning:
+    Hunk #1 succeeded at 360 (offset 11 lines).
 
 -------------------------------------------------------------------
-Fri Jun 24 16:08:53 CST 2011 - bosong.ly@taobao.com
+Fri Jun 24 16:11:23 CST 2011 - bosong.ly@taobao.com
 
-- patches.taobao/perf-x86-Fix-Intel-fixed-counters-base-initializatio.patch:
-  perf, x86: Fix Intel fixed counters base initialization.
-
--------------------------------------------------------------------
-Thu Jun 23 19:14:29 CST 2011 - bosong.ly@taobao.com
-
-- Add 8 patches to improve memory comaction performance, just pass compiling,
-  need more testing.
+- Add 8 patches to improve memory compaction performance, reduce CPU systime:
   - patches.taobao/mm-0001-compaction-checks-correct-fragmentation-index.patch:
     compaction: checks correct fragmentation index.
   - patches.taobao/mm-0002-batch-free-pcp-list-if-possible.patch:
@@ -1228,20 +1163,22 @@ Thu Jun 23 19:14:29 CST 2011 - bosong.ly@taobao.com
     adding buddies that are merging to the tail of the free lists.
 
 -------------------------------------------------------------------
-Wed Jun 22 14:49:39 CST 2011 - gaoyang.zyh@taobao.com
+Fri Jun 24 16:07:56 CST 2011 - bosong.ly@taobao.com
 
-- rpm/taobao-kernel-build.sh: build with newt for better UI of perf.
+- patches.taobao/perf-x86-Fix-Intel-fixed-counters-base-initializatio.patch:
+  perf, x86: Fix Intel fixed counters base initialization.
 
 -------------------------------------------------------------------
-Mon Jun 20 12:43:52 CST 2011 - bosong.ly@taobao.com
+Mon Jun 20 12:42:56 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/perf-Find_get_context-fix-the-per-cpu-counter-check.patch:
   perf: Find_get_context: fix the per-cpu-counter check.
 - patches.taobao/perf-Validate-cpu-early-in-perf_event_alloc.patch:
   perf: Validate cpu early in perf_event_alloc().
+- redhat-kernel-version: move el5 to el6
 
 -------------------------------------------------------------------
-Fri Jun 17 19:17:26 CST 2011 - bosong.ly@taobao.com
+Fri Jun 17 19:15:50 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/ext4-set-file-system-to-read-only-by-io-error-threshold.patch:
   Ext4: set file system to read-only by I/O error threshold.
@@ -1253,19 +1190,14 @@ Fri Jun 17 21:51:29 CST 2011 - boyu.mt@taobao.com
   async write starvation by allowing one dispatch at a time.
 
 -------------------------------------------------------------------
-Thu Jun 16 11:42:45 CST 2011 - bosong.ly@taobao.com
+Thu Jun 16 11:46:59 CST 2011 - bosong.ly@taobao.com
 
 Update to 2.6.32-131.4.1.
 
 -------------------------------------------------------------------
-Wed Jun 15 19:45:32 CST 2011 - bosong.ly@taobao.com
+Wed Jun 15 19:23:39 CST 2011 - bosong.ly@taobao.com
 
-commit missing files during previous restructure.
-
--------------------------------------------------------------------
-Wed Jun 15 19:39:59 CST 2011 - bosong.ly@taobao.com
-
-restruct taobao kernel tree, the modification includes,
+truct taobao kernel tree, the modification includes,
 1) redhat-kernel-source/ does not only include kernel source.
 2) place all files from redhat kernel srpm into redhat-kernel-source/
 3) decompressed redhat kernel source code placed in redhat-kernel-source/linux-2.6.32
@@ -1273,8 +1205,14 @@ restruct taobao kernel tree, the modification includes,
 
 This change set also modifies tools in scripts/ to update with the above change.
 
+------------------------------------------------------------------
+Tue Jun 14 17:54:59 CST 2011 - bosong.ly@taobao.com
+
+- Update config files: last commit missing -debug.config, this
+  commit add the changes to -debug.config
+
 -------------------------------------------------------------------
-Tue Jun 14 17:54:19 CST 2011 - bosong.ly@taobao.com
+Tue Jun 14 17:51:54 CST 2011 - bosong.ly@taobao.com
 
 - Update config files:
   CONFIG_CONFIGFS_FS=y
@@ -1282,25 +1220,25 @@ Tue Jun 14 17:54:19 CST 2011 - bosong.ly@taobao.com
   CONFIG_NETPOLL_TARGETS=y
 
 -------------------------------------------------------------------
-Tue Jun 14 16:34:21 CST 2011 - bosong.ly@taobao.com
+Tue Jun 14 16:35:49 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/netoops_022_add_user_programmable_boot_id.patch:
   set CONFIG_NETPOLL_TARGETS default to y
 
 -------------------------------------------------------------------
-Tue Jun 14 12:15:15 CST 2011 - bosong.ly@taobao.com
+Tue Jun 14 12:15:50 CST 2011 - bosong.ly@taobao.com
 
 - config.conf: remove lvs config
 
 -------------------------------------------------------------------
-Tue Jun 14 12:03:28 CST 2011 - bosong.ly@taobao.com
+Tue Jun 14 12:04:58 CST 2011 - bosong.ly@taobao.com
 
-- remove lvs kernel package build:
+- remove lvs kernel package build
   - rpm/kernel.spec.in:
   - rpm/taobao-kernel-build.sh:
 
 -------------------------------------------------------------------
-Tue Jun 14 11:50:36 CST 2011 - bosong.ly@taobao.com
+Tue Jun 14 11:48:56 CST 2011 - bosong.ly@taobao.com
 
 - Update config files:
   set CONFIG_NETPOLL_TARGETS=y, because netpoll_targets.c is not a
@@ -1308,10 +1246,10 @@ Tue Jun 14 11:50:36 CST 2011 - bosong.ly@taobao.com
 
 
 -------------------------------------------------------------------
-Tue Jun 14 11:46:36 CST 2011 - bosong.ly@taobao.com
+Tue Jun 14 11:45:05 CST 2011 - bosong.ly@taobao.com
 
-- config/kernel-2.6.32-x86_64-lvs.config: Delete it since we merge
-  lvs config into kernel-2.6.32-x86_64.config.
+- config/kernel-2.6.32-x86_64-lvs.config: Delete since we merge lvs config
+  to kernel-2.6.32-x86_64.config.
 
 -------------------------------------------------------------------
 Mon Jun 13 10:28:08 CST 2011 - boyu.mt@taobao.com
@@ -1320,24 +1258,24 @@ Mon Jun 13 10:28:08 CST 2011 - boyu.mt@taobao.com
   for show the context swithes number for every cpu.
 
 -------------------------------------------------------------------
-Fri Jun 10 13:52:14 CST 2011 - bosong.ly@taobao.com
+Fri Jun 10 13:50:45 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/ext4-don-t-show-mount-options-in-proc-mounts-if-ther.patch:
   ext4: don't show mount options in /proc/mounts if there is no
   journal (BF#95153).
 
 -------------------------------------------------------------------
-Fri Jun 10 12:34:41 CST 2011 - bosong.ly@taobao.com
+Fri Jun 10 12:33:30 CST 2011 - bosong.ly@taobao.com
 
 - patches.driver/drbd-8.3.10.patch: add missing #undef REQ_HEARDBARRIER
 
 -------------------------------------------------------------------
-Thu Jun  9 13:35:22 CST 2011 - bosong.ly@taobao.com
+Thu Jun  9 13:26:52 CST 2011 - bosong.ly@taobao.com
 
 - patches.driver/drbd-8.3.10.patch: add missing entry in drivers/block/Makefile
 
 -------------------------------------------------------------------
-Thu Jun  9 13:34:30 CST 2011 - bosong.ly@taobao.com
+Thu Jun  9 12:11:36 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/net-tcp-timewait-dynamic-config.patch: fix coding
   style volatile ISO C90 reported on kernel-el6 build.
@@ -1345,35 +1283,45 @@ Thu Jun  9 13:34:30 CST 2011 - bosong.ly@taobao.com
   code
 
 -------------------------------------------------------------------
-Thu Jun  9 01:38:10 CST 2011 - bosong.ly@taobao.com
+Thu Jun  9 01:42:48 CST 2011 - bosong.ly@taobao.com
 
 - patches.taobao/net-tcp-timewait-dynamic-config.patch: net:
   Change time_wait timeout value dynamically.
 
 -------------------------------------------------------------------
-Thu Jun  9 01:14:22 CST 2011 - bosong.ly@taobao.com
+Thu Jun  9 01:15:23 CST 2011 - bosong.ly@taobao.com
 
 - Update config files for linux virtual server configuration.
   -CONFIG_IP_VS_TAB_BITS=12
   +CONFIG_IP_VS_TAB_BITS=20
 
 -------------------------------------------------------------------
-Sat Jun  4 02:04:52 CST 2011 - bosong.ly@taobao.com
+Sat Jun  4 16:19:18 CST 2011 - gaoyang.zyh@taobao.com
 
-- rpm/kernel.spec.in: Fix missing '\' which brreaks rpmbuild command.
-
--------------------------------------------------------------------
-Fri Jun  3 17:43:15 CST 2011 - bosong.ly@taobao.com
-
-- redhat-kernel-source/.mailmap: Delete useless file
+- rpm/kernel.spec.in: add Packager to spec.
 
 -------------------------------------------------------------------
-Fri Jun  3 17:17:59 CST 2011 - bosong.ly@taobao.com
+Sat Jun  4 10:38:39 CST 2011 - gaoyang.zyh@taobao.com
+
+- scripts/seq-patch.py: check if quilt exists before call it.
+
+-------------------------------------------------------------------
+Sat Jun  4 02:11:31 CST 2011 - bosong.ly@taobao.com
+
+- rpm/kernel.spec.in: fix missing '\' which breaks rpmbuild command.
+
+-------------------------------------------------------------------
+Fri Jun  3 17:43:48 CST 2011 - bosong.ly@taobao.com
+
+- rpm/kernel.spec.in: sync modification of 5u and master branch.
+
+-------------------------------------------------------------------
+Fri Jun  3 17:08:11 CST 2011 - bosong.ly@taobao.com
 
 - version: add item for 2.6.32-131.2.1
 
 -------------------------------------------------------------------
-Fri Jun  3 17:17:02 CST 2011 - bosong.ly@taobao.com
+Fri Jun  3 17:05:27 CST 2011 - bosong.ly@taobao.com
 
 - Update to linux-2.6.32-131.2.1.el6
   - Update config files.
@@ -1382,31 +1330,51 @@ Fri Jun  3 17:17:02 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-source/version
 
 -------------------------------------------------------------------
-Sat Jun  4 16:17:37 CST 2011 - gaoyang.zyh@taobao.com
+Fri Jun  3 10:20:02 CST 2011 - gaoyang.zyh@taobao.com
 
-- rpm/kernel.spec.in: add Packager to spec.
-
--------------------------------------------------------------------
-Sat Jun  4 10:37:23 CST 2011 - gaoyang.zyh@taobao.com
-
-- scripts/seq-patch.py: check if quilt exists before call it.
+- rpm/taobao-kernel-build.sh: install xmlto and asciidoc before building.
 
 -------------------------------------------------------------------
-Fri Jun  3 01:37:21 CST 2011 - bosong.ly@taobao.com
+Fri Jun  3 01:57:30 CST 2011 - bosong.ly@taobao.com
 
-- Update -debug.config from master branch..
-
--------------------------------------------------------------------
-Fri Jun  3 01:11:03 CST 2011 - bosong.ly@taobao.com
-
-- version: update to 2.6.32-131.0.15
+- minor fixes synced from 5u branch:
+  - rpm/kernel.spec.in:
+  - rpm/taobao-kernel-build.sh:
 
 -------------------------------------------------------------------
-Fri Jun  3 01:06:18 CST 2011 - bosong.ly@taobao.com
+Fri Jun  3 00:40:04 CST 2011 - bosong.ly@taobao.com
 
-- Rebase Taobao patches against RHEL6.1 2.6.32-131.0.15 kernel.
-  - Update config files.
-  - patches.driver/drbd-8.3.10.patch
+- patches.taobao/netoops_015_netpoll_move_target_code_into_netpoll_targets.patch:
+  replace strict_strtoul() by simple_strtoul().
+
+-------------------------------------------------------------------
+Thu Jun  2 18:36:45 CST 2011 - bosong.ly@taobao.com
+
+- Update config files:
+  - Enable DRBD config.
+  - Remove SELINUX config.
+
+-------------------------------------------------------------------
+Thu Jun  2 18:19:52 CST 2011 - bosong.ly@taobao.com
+
+- version: add version string for 2.6.32-131.0.15.el6
+
+-------------------------------------------------------------------
+Thu Jun  2 18:15:17 CST 2011 - bosong.ly@taobao.com
+
+- Update config files: add patches.driver/drbd-8.3.10.patch
+- patches.driver/drbd-8.3.10.patch: backport drbd 8.3.10 to
+  RHEL6 2.6.32 kernel.
+
+-------------------------------------------------------------------
+Thu Jun  2 12:27:36 CST 2011 - bosong.ly@taobao.com
+
+- Update config files by RHEL6.1 2.6.32-131.0.15 kernel config.
+
+-------------------------------------------------------------------
+Thu Jun  2 12:18:19 CST 2011 - bosong.ly@taobao.com
+
+- Rebase patches to RHEL6.1 2.6.32-131.0.15 kernel:
   - patches.driver/e1000e-1.3.10a.patch
   - patches.taobao/ext4-Fix-buffer-head-leaks-after-calls-to-ext4_get_inode_loc.diff
   - patches.taobao/ext4-Fix-possible-lost-inode-write-in-no-journal-mode.diff
@@ -1416,7 +1384,6 @@ Fri Jun  3 01:06:18 CST 2011 - bosong.ly@taobao.com
   - patches.taobao/jbd2_Fix_forever_sleeping_process_in_do_get_write_access.patch
   - patches.taobao/jbd_Fix_forever_sleeping_process_in_do_get_write_access.patch
   - patches.taobao/netoops_014_netpoll_introduce_netpoll_target_configs.patch
-  - patches.taobao/netoops_015_netpoll_move_target_code_into_netpoll_targets.patch
   - patches.taobao/netoops_016_oops_pass_regs_to_oops_exit.patch
   - patches.taobao/netoops_017_kmsg_dumper_pass_pt_regs_along_to_dumpers.patch
   - patches.taobao/netoops_020_add_core_functionality.patch
@@ -1424,54 +1391,28 @@ Fri Jun  3 01:06:18 CST 2011 - bosong.ly@taobao.com
   - patches.taobao/pagecache_hit_accounting_002_add_func_and_structures.patch
   - patches.taobao/pagecache_hit_accounting_003_mm_add_accouting_for_pagecache.patch
   - patches.taobao/pagecache_hit_accounting_004_add_readpages_accounting.patch
-- Sync from master branch:
-  - rpm/kernel.spec.in
-  - rpm/taobao-kernel-build.sh
+- Update series.conf since some patches of Taoboa are merged into RHEL6.1 kernel.
 
 -------------------------------------------------------------------
-Thu Jun  2 19:09:48 CST 2011 - bosong.ly@taobao.com
+Thu Jun  2 11:39:19 CST 2011 - bosong.ly@taobao.com
 
-- Update to RHEL6.1 kernel linux-2.6.32-131.0.15.el6.
-  - Update config files.
+- Update to RHEL6.1 2.6.32-131.0.15 kernel.
   - redhat-kernel-changelog:
-  - redhat-kernel-source/
-  - redhat-kernel-source/version
+  - redhat-kernel-source
 
 -------------------------------------------------------------------
-Wed Jun  1 12:03:08 CST 2011 - bosong.ly@taobao.com
+Wed Jun  1 12:04:11 CST 2011 - bosong.ly@taobao.com
 
 - rpm/kernel.spec.in: if build with_perftool, add xmlto and asciidoc
   to BuildRequires.
 
 -------------------------------------------------------------------
-Thu May 26 14:06:33 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/taobao-kernel-build.sh: asciidoc should be installed from taobao current
- branch instead of standard rhel repo.
-
--------------------------------------------------------------------
-Mon May 23 18:21:53 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/kernel.spec.in: we don't want *-doc packages.
-
--------------------------------------------------------------------
-Mon May 23 18:16:26 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/taobao-kernel-build.sh: add two missing build dependencies.
-
--------------------------------------------------------------------
-Mon May 23 15:36:01 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/kernel.spec.in: remove the 'ifnarch noarch' statement which stops the build of
-	perftool.
-
--------------------------------------------------------------------
-Mon May 23 15:04:50 CST 2011 - gaoyang.zyh@taobao.com
+Mon May 23 15:04:04 CST 2011 - gaoyang.zyh@taobao.com
 
 - MAINTAINERS: add tailai for email notify.
 
 -------------------------------------------------------------------
-Thu May 19 12:58:27 CST 2011 - bosong.ly@taobao.com
+Thu May 19 15:24:41 CST 2011 - bosong.ly@taobao.com
 
 - Merge several ext4 fixes from upstream:
   - patches.taobao/ext4-Fix-buffer-head-leaks-after-calls-to-ext4_get_inode_loc.diff:
@@ -1480,42 +1421,37 @@ Thu May 19 12:58:27 CST 2011 - bosong.ly@taobao.com
   - patches.taobao/ext4-fix-kernel-oops-if-the-journal-superblock-has-a-non-zero-j_errno.diff:
 
 -------------------------------------------------------------------
-Mon May 16 19:20:13 CST 2011 - gaoyang.zyh@taobao.com
+Mon May 16 19:29:09 CST 2011 - gaoyang.zyh@taobao.com
 
 - patches.taobao/pci-fix-mmap-addr-check.patch: fix for Bug94041.
  pci_mmap_fits() didn't handle pci mmap via proc properly.
 
 -------------------------------------------------------------------
-Fri May 13 21:41:36 CST 2011 - bosong.ly@taobao.com
+Fri May 13 21:38:16 CST 2011 - bosong.ly@taobao.com
 
-- Refresh patches.driver/e1000e-1.3.10a.patch, last commit is incompleted.
+- Refresh patches.driver/e1000e-1.3.10a.patch, last commit
+  is incompleted.
 
 -------------------------------------------------------------------
-Fri May 13 20:18:22 CST 2011 - bosong.ly@taobao.com
+Fri May 13 20:16:04 CST 2011 - bosong.ly@taobao.com
 
 - patches.driver/e1000e-1.3.10a.patch: backport e1000e-1.3.10a
   driver to RHEL6 2.6.32 kernel.
 
 -------------------------------------------------------------------
-Wed May 11 12:26:23 CST 2011 - bosong.ly@taobao.com
+Wed May 11 12:24:30 CST 2011 - bosong.ly@taobao.com
 
 - Update config files: add CONFIG_NETOOPS=m
 
 -------------------------------------------------------------------
-Wed May 11 02:52:29 CST 2011 - bosong.ly@taobao.com
+Wed May 11 02:55:53 CST 2011 - bosong.ly@taobao.com
 
-- redhat-kernel-source/drivers/net/ixgbe/ixgbe_param.c: add missing file
-  when updating to 2.6.32-71.29.1.el6.
-
--------------------------------------------------------------------
-Wed May 11 02:51:29 CST 2011 - bosong.ly@taobao.com
-
-- version: add entry for 2.6.32-71.29.1.el6.
+- version: add entry for linux-2.6.32-71.29.1.el6.
 
 -------------------------------------------------------------------
-Wed May 11 02:49:32 CST 2011 - bosong.ly@taobao.com
+Wed May 11 02:54:29 CST 2011 - bosong.ly@taobao.com
 
-- update to 2.6.32-71.29.1.el6:
+- Update to linux-2.6.32-71.29.1.el6:
   - redhat-kernel-changelog:
   - redhat-kernel-source/arch/x86/kernel/efi_64.c:
   - redhat-kernel-source/crypto/signature/key.h:
@@ -1583,7 +1519,8 @@ Wed May 11 02:49:32 CST 2011 - bosong.ly@taobao.com
   - redhat-kernel-source/version:
 
 -------------------------------------------------------------------
-Wed May 11 01:57:32 CST 2011 - bosong.ly@taobao.com
+Wed May 11 02:03:35 CST 2011 - bosong.ly@taobao.com
+
 - merge netoops patch set:
   - patches.taobao/netoops_001_kmsg_dumper_call_on_oops_and_panics.patch:
     kmsg_dumper: call on oops and panics.
@@ -1655,11 +1592,11 @@ These 2 fixes will be committed into upstream soon.
   jbd: Fix forever sleeping process in do_get_write_access().
 
 -------------------------------------------------------------------
-Tue May  3 12:39:49 CST 2011 - bosong.ly@taobao.com
+Tue May  3 12:40:58 CST 2011 - bosong.ly@taobao.com
 
-- rpm/kernel.spec.in: fix a set of typoes
-  - %%COMMITID%%, based on Redhat %%RHELBASE%%.\
-  + %%COMMITID%%, based on Redhat %%RHELBASE%%.
+- rpm/kernel.spec.in: fix a set of typos:
+ - %%COMMITID%%, based on Redhat %%RHELBASE%%.\
+ + %%COMMITID%%, based on Redhat %%RHELBASE%%.
 
 -------------------------------------------------------------------
 Wed Apr 20 12:00:58 CST 2011 - boyu.mt@taobao.com
@@ -1701,42 +1638,38 @@ The new one will be added in another patch.
   Delete.
 
 -------------------------------------------------------------------
-Fri Apr 15 20:49:59 CST 2011 - bosong.ly@taobao.com
+Fri Apr 15 20:50:43 CST 2011 - bosong.ly@taobao.com
 
 - Update config files: set CONFIG_BLK_DEV_SD=y
 
 -------------------------------------------------------------------
-Fri Apr 15 18:51:03 CST 2011 - bosong.ly@taobao.com
+Fri Apr 15 18:52:49 CST 2011 - bosong.ly@taobao.com
 
-- Update config files: copy kernel-2.6.32-x86_64.config to kernel-2.6.32-x86_64-lvs.config,
+- Update config files: copy kernel-2.6.32-x86_64.config to kernel-2.6.32-x86_64-lvs.config, 
   because we don't have a lvs kconfig yet.
 
 -------------------------------------------------------------------
-Fri Apr 15 18:39:56 CST 2011 - bosong.ly@taobao.com
+Fri Apr 15 18:32:09 CST 2011 - bosong.ly@taobao.com
 
 - Update config files, sync modification from linux-2.6.32-71.24.1.el6.
   - kernel-2.6.32-x86_64-debug.config
   - kernel-2.6.32-x86_64.config
 
 -------------------------------------------------------------------
-Fri Apr 15 17:49:29 CST 2011 - gaoyang.zyh@taobao.com
+Fri Apr 15 16:06:58 CST 2011 - bosong.ly@taobao.com
 
-- rpm/kernel.spec.in: don't use dracut on 5u4 branch by default.
-
--------------------------------------------------------------------
-Fri Apr 15 16:05:59 CST 2011 - bosong.ly@taobao.com
-
-- redhat-kernel-changelog: remove redundant head "%changelog".
+- redhat-kernel-changelog: remove redundant head "%changelog"
 
 -------------------------------------------------------------------
-Fri Apr 15 16:00:11 CST 2011 - bosong.ly@taobao.com
+Fri Apr 15 15:54:36 CST 2011 - bosong.ly@taobao.com
 
 - version: add entry for linux-2.6.32-71.24.1.el6.
 
 -------------------------------------------------------------------
-Fri Apr 15 15:58:19 CST 2011 - bosong.ly@taobao.com
+Fri Apr 15 15:52:06 CST 2011 - bosong.ly@taobao.com
 
 - Update to linux-2.6.32-71.24.1.el6:
+ - redhat-kernel-changelog:
  - redhat-kernel-source/.gitignore:
  - redhat-kernel-source/Documentation/sysctl/kernel.txt:
  - redhat-kernel-source/arch/powerpc/kernel/head_64.S:
@@ -1805,23 +1738,23 @@ Fri Apr 15 15:58:19 CST 2011 - bosong.ly@taobao.com
  - redhat-kernel-source/version:
 
 -------------------------------------------------------------------
-Tue Mar 29 16:33:01 CST 2011 - bosong.ly@taobao.com
+Tue Mar 29 16:11:25 CST 2011 - bosong.ly@taobao.com
 
-- series.conf: disable page cache accouting patch, will re-enable
-  them after re-implemented by trace. 
+- series.conf: disable page cache accounting patches, will re-enable
+  them when implemented by trace.
 
 -------------------------------------------------------------------
-Wed Mar 16 14:37:56 CST 2011 - gaoyang.zyh@taobao.com
+Wed Mar 16 14:43:09 CST 2011 - gaoyang.zyh@taobao.com
 
 - scripts/package.py: we use kernel-source.changes as taobao-kernel.changes.
 
 -------------------------------------------------------------------
-Tue Mar 15 09:43:17 CST 2011 - gaoyang.zyh@taobao.com
+Tue Mar 15 09:40:35 CST 2011 - gaoyang.zyh@taobao.com
 
-- rpm/kernel.spec.in: two package descriptions still need the '\'.
+- rpm/kernel.spec.in: two package descriptions sill need the '\'.
 
 -------------------------------------------------------------------
-Mon Mar 14 17:06:36 CST 2011 - gaoyang.zyh@taobao.com
+Mon Mar 14 17:09:05 CST 2011 - gaoyang.zyh@taobao.com
 
 - rpm/kernel.spec.in: fixed a typo (a redundancy '\')
 - scripts/gitlog2changes: use TZ=Asia/Shanghai instead of CET.
@@ -1837,19 +1770,20 @@ Mon Mar 14 14:38:55 CST 2011 - gaoyang.zyh@taobao.com
     - scripts/package.py:
 
 -------------------------------------------------------------------
+Mon Mar 14 14:22:29 CST 2011 - gaoyang.zyh@taobao.com
+
+- Use RHEL's origin changelog in .spec instead of our own one.
+  Taobao's changelog will be copied into /lib/modules/{KVER} instead.
+    - redhat-kernel-changelog:
+    - rpm/kernel.spec.in:
+    - scripts/mkspec.py:
+    - scripts/package.py:
+
+-------------------------------------------------------------------
 Fri Mar 11 21:39:04 CST 2011 - boyu.mt@taobao.com
 
 - patches.taobao/blktrace-Don-t-output-messages-if-NOTIFY-isn-t-set.patch:
   blktrace: Don't output messages if NOTIFY isn't set.
-
--------------------------------------------------------------------
-
-Fri Mar 11 15:04:57 CST 2011 - gaoyang.zyh@taobao.com
-- Used RHEL's origin changelog in .spec instead of our own one.
-- redhat-kernel-source/redhat-kernel-changelog:
-- rpm/kernel.spec.in:
-- scripts/mkspec.py:
-- scripts/package.py:
 
 -------------------------------------------------------------------
 Fri Mar 11 20:08:04 CST 2011 - bosong.ly@taobao.com
@@ -1859,25 +1793,12 @@ Fri Mar 11 20:08:04 CST 2011 - bosong.ly@taobao.com
   - sync lvs kconfig from stardand kconfig
 
 -------------------------------------------------------------------
-Fri Mar 11 16:51:23 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/kernel.spec.in: missed a path prefix in my last commit.
-
--------------------------------------------------------------------
 Fri Mar 11 16:28:14 CST 2011 - bosong.ly@taobao.com
 
 - rpm/kernel.spec.in: remove  squashfs-tools and wireless-tools
   dependences, almost all online machines may complain the dependency
   conflict when updating kernel while they don't need these 2
   packages.
-
--------------------------------------------------------------------
-Fri Mar 11 16:12:39 CST 2011 - gaoyang.zyh@taobao.com
-- Move redhat-kernel-changelog out of RH Tree.
-    - redhat-kernel-changelog:
-    - rpm/kernel.spec.in:
-    - scripts/package.py:
-    - redhat-kernel-source/redhat-kernel-changelog: Delete.
 
 -------------------------------------------------------------------
 Fri Mar 11 14:26:28 CST 2011 - bosong.ly@taobao.com
@@ -1897,14 +1818,9 @@ Fri Mar 11 12:03:38 CST 2011 - bosong.ly@taobao.com
 - upgrade to linux-2.6.32-71.18.2.el6.
 
 -------------------------------------------------------------------
-Thu Mar 10 22:32:06 CST 2011 - gaoyang.zyh@taobao.com
+Thu Mar 10 22:33:25 CST 2011 - gaoyang.zyh@taobao.com
 
-- scripts/seq-patch.py: fixed a typo.
-
--------------------------------------------------------------------
-Thu Mar 10 22:31:39 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/taobao-kernel-build.sh: enable perf build.
+- rpm/taobao-kernel-build.sh: enable build with perf and dracut.
 
 -------------------------------------------------------------------
 Thu Mar 10 22:26:29 CST 2011 - gaoyang.zyh@taobao.com
@@ -1918,7 +1834,7 @@ Thu Mar 10 17:19:38 CST 2011 - bosong.ly@taobao.com
   dependency.
 
 -------------------------------------------------------------------
-Thu Mar 10 16:14:46 CST 2011 - bosong.ly@taobao.com
+Thu Mar 10 16:15:47 CST 2011 - bosong.ly@taobao.com
 
 - merge from branch master.
 
@@ -1932,11 +1848,11 @@ Thu Mar 10 16:10:30 CST 2011 - bosong.ly@taobao.com
     non-debug config items made in config/kernel-2.6.32-x86_64.config.
 
 -------------------------------------------------------------------
-Thu Mar 10 15:50:02 CST 2011 - bosong.ly@taobao.com
+Thu Mar 10 15:53:15 CST 2011 - bosong.ly@taobao.com
 
-- scripts/mkspec.py: fix pkg_release build code for el5:
-  -  pkg_release = rh_release_id + "."  + "tb" + buildid + ".el6"
-  +  pkg_release = rh_release_id + "."  + "tb" + buildid + ".el5"
+- scripts/mkspec.py: add comments on the code where assembling
+   pkg_release string. For different distribution (el5, el6), the
+   last dist string should be modified.
 
 -------------------------------------------------------------------
 Thu Mar 10 15:47:56 CST 2011 - bosong.ly@taobao.com
@@ -1959,17 +1875,10 @@ Wed Mar  9 12:30:14 CST 2011 - bosong.ly@taobao.com
   * A11Y (Accessibility Driver)
 
 -------------------------------------------------------------------
-Wed Mar  9 10:57:26 CST 2011 - gaoyang.zyh@taobao.com
+Tue Mar  8 20:47:56 CST 2011 - bosong.ly@taobao.com
 
-- rpm/taobao-kernel-build.sh: add rng-utils to build requires, otherwise
-  we might wait quite a long time on collecting enough PGP seed.
-
--------------------------------------------------------------------
-Tue Mar  8 20:51:43 CST 2011 - bosong.ly@taobao.com
-
-- Update config files: merged from "master" branch, build
-  megaraid_sas into core.
-- scripts/mkspec.py: fix merge confliction.
+- merge from "master" branch.
+- scripts/mkspec.py: fix a merge confliction.
 
 -------------------------------------------------------------------
 Tue Mar  8 20:42:57 CST 2011 - bosong.ly@taobao.com
@@ -1989,22 +1898,9 @@ Tue Mar  8 11:04:30 CST 2011 - gaoyang.zyh@taobao.com
 - scripts/mkspec.py: use 'tb{n}' instead of '{n}tb' in buildid.
 
 -------------------------------------------------------------------
-Tue Mar  8 10:58:40 CST 2011 - gaoyang.zyh@taobao.com
+Tue Mar  8 11:00:45 CST 2011 - gaoyang.zyh@taobao.com
 
 - scripts/mkspec.py: use 'tb{n}' instead of '{n}tb' in buildid.
-
--------------------------------------------------------------------
-Mon Mar  7 16:45:29 CST 2011 - gaoyang.zyh@taobao.com
-
-- Update config files. Sync this placeholder config with the base config.
-
--------------------------------------------------------------------
-Mon Mar  7 16:42:33 CST 2011 - gaoyang.zyh@taobao.com
-
-- Reconstruct the packaging naming rule. Now we use something like
-kernel-2.6.32-18.7.1.100tb.el6.x86_64.rpm
-    - rpm/kernel.spec.in:
-    - scripts/mkspec.py:
 
 -------------------------------------------------------------------
 Mon Mar  7 15:41:45 CST 2011 - gaoyang.zyh@taobao.com
@@ -2018,6 +1914,13 @@ Mon Mar  7 15:40:00 CST 2011 - gaoyang.zyh@taobao.com
 kernel-2.6.32-18.7.1.100tb.el6.x86_64.rpm.
     - rpm/kernel.spec.in:
     - scripts/mkspec.py:
+
+-------------------------------------------------------------------
+Fri Mar  4 20:39:23 CST 2011 - bosong.ly@taobao.com
+
+- rpm/kernel.spec.in: change dist from .master to .el6
+	-%define dist .master
+	+%define dist .el6
 
 -------------------------------------------------------------------
 Fri Mar  4 20:33:18 CST 2011 - bosong.ly@taobao.com
@@ -2048,11 +1951,6 @@ Fri Mar  4 17:57:23 CST 2011 - gaoyang.zyh@taobao.com
 - rpm/taobao-kernel-build.sh: add m4.
 
 -------------------------------------------------------------------
-Fri Mar  4 17:55:01 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/taobao-kernel-build.sh: add m4, some build boxes have no m4 installed.
-
--------------------------------------------------------------------
 Thu Mar  3 20:12:38 CST 2011 - bosong.ly@taobao.com
 
 - rpm/kernel.spec.in: comment out kabi check file,
@@ -2064,11 +1962,6 @@ Thu Mar  3 20:12:38 CST 2011 - bosong.ly@taobao.com
 Thu Mar  3 18:11:10 CST 2011 - gaoyang.zyh@taobao.com
 
 - rpm/kernel.spec.in: change dist from .el6 to master in master branch.
-
--------------------------------------------------------------------
-Thu Mar  3 18:08:45 CST 2011 - gaoyang.zyh@taobao.com
-
-- rpm/kernel.spec.in: change build distro from .el6 to .el5 in 5u4 branch
 
 -------------------------------------------------------------------
 Thu Mar  3 18:02:47 CST 2011 - bosong.ly@taobao.com
@@ -2163,34 +2056,6 @@ Tue Mar  1 22:43:05 CST 2011 - bosong.ly@taobao.com
         -CONFIG_MTD_PMC551=m
         -CONFIG_BLK_DEV_SD=m
         -CONFIG_CPUMASK_OFFSTACK=y
-
--------------------------------------------------------------------
-Tue Mar  1 22:31:11 CST 2011 - bosong.ly@taobao.com
-
-- Update config files: config/kernel-2.6.32-x86_64-debug.config
-  according modification of config/kernel-2.6.32-x86_64.config
-
--------------------------------------------------------------------
-Tue Mar  1 22:19:12 CST 2011 - bosong.ly@taobao.com
-
-- Update config files: config/kernel-2.6.32-x86_64.config
-  * set items:
-	+CONFIG_NR_CPUS=256
-	+CONFIG_ARPD=y
-	+CONFIG_MAC80211_MESH=y
-	+CONFIG_MAC80211_DEBUGFS=y
-	+CONFIG_DEBUG_DEVRES=y
-	+CONFIG_BLK_DEV_SD=y
-	+CONFIG_THRUSTMASTER_FF=y
-	+CONFIG_ZEROPLUS_FF=y
-  * removed items:
-	-CONFIG_MAXSMP=y
-	-CONFIG_NR_CPUS=4096
-	-CONFIG_MTD_PMC551=m
-	-CONFIG_BLK_DEV_SD=m
-	-CONFIG_CPUMASK_OFFSTACK=y
-  The above modification compiles original sd_mod.ko into kernel, to make
-  initrd work better.
 
 -------------------------------------------------------------------
 Tue Mar  1 19:32:17 CST 2011 - gaoyang.zyh@taobao.com
